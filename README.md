@@ -28,39 +28,34 @@ pip install requests icalendar
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/iCalSyncHub.git
+git clone https://github.com/ramhee98/iCalSyncHub.git
 cd iCalSyncHub
 ```
 
-2. Create a configuration file named `calendar_sync_config.ini` in the project directory with the following format:
+2. Copy the config_template.ini file and customize it according to your requirements:
 
-```ini
-[settings]
-calendar_urls=https://example.com/calendar1.ics,https://example.com/calendar2.ics
-output_path=/path/to/output/merged_calendar.ics
-sync_interval=3600
+```bash
+cp config_template.ini template.ini
+nano template.ini
 ```
 
-- **`calendar_urls`**: Comma-separated URLs of the iCal calendars to sync.
 - **`output_path`**: Path where the merged calendar file will be saved.
 - **`sync_interval`**: Time interval (in seconds) between calendar syncs.
 
-3. Run the program:
+3. Create a calendar_urls.txt file in the project directory, listing the calendar URLs to sync:
+
+```bash
+https://example.com/calendar1.ics
+https://example.com/calendar2.ics
+```
+
+4. Run the program:
 
 ```bash
 python sync_calendars.py
 ```
 
 The program will fetch the specified calendars, merge their events, and save the result as an iCal file at the configured location. It will then periodically sync the calendars based on the specified interval.
-
-## Example Configuration
-
-```ini
-[settings]
-calendar_urls=https://example.com/work_calendar.ics,https://example.com/personal_calendar.ics
-output_path=/var/www/html/merged_calendar.ics
-sync_interval=3600
-```
 
 ## License
 

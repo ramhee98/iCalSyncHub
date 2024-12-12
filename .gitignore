@@ -1,0 +1,16 @@
+# Ignore the URL file
+calendar_urls.txt
+config.ini
+
+# Ignore virtual environment folder
+venv/
+
+# Ignore other common Python-related files and folders
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+.env
+.DS_Store
+*.log
