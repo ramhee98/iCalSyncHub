@@ -2,15 +2,51 @@ import os
 import time
 import requests
 import icalendar
+import configparser
 from datetime import datetime
 from urllib.parse import urlparse, urlunparse, quote, unquote
-import configparser
+import random
+import string
+
 
 def load_config(config_path):
     """Load configuration from a file."""
     config = configparser.ConfigParser(interpolation=None)  # Disable interpolation
     config.read(config_path)
     return config
+
+
+def save_config(config, config_path):
+    """Save the updated configuration back to the file."""
+    with open(config_path, 'w') as config_file:
+        config.write(config_file)
+
+
+def generate_random_filename():
+    """Generate a random filename for the iCal file."""
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=64)) + '.ics'
+
+
+def ensure_randomized_filename(config, config_path):
+    """Ensure that the filename is randomized and saved to the configuration."""
+    output_path = config.get('settings', 'output_path', fallback='./')
+    filename = config.get('settings', 'filename', fallback=None)
+
+    # Check if the filename is already defined
+    if filename:
+        print(f"Using existing filename: {filename}")
+        return os.path.join(output_path, filename)
+
+    # Generate a random filename if not already defined
+    random_filename = generate_random_filename()
+    config.set('settings', 'filename', random_filename)
+    save_config(config, config_path)
+
+    randomized_output_path = os.path.join(output_path, random_filename)
+    print(f"Generated random filename: {random_filename}")
+    print(f"Full output path: {randomized_output_path}")
+    return randomized_output_path
+
 
 def load_urls(file_path):
     """Load URLs from a file, ignoring comments and empty lines."""
@@ -27,6 +63,7 @@ def load_urls(file_path):
         print(f"URL file '{file_path}' not found.")
     return urls
 
+
 def sanitize_url(url):
     """Sanitize URL to ensure proper encoding."""
     parsed_url = urlparse(url)
@@ -35,6 +72,7 @@ def sanitize_url(url):
     # Re-encode the path to ensure proper encoding
     sanitized_path = quote(decoded_path)
     return urlunparse((parsed_url.scheme, parsed_url.netloc, sanitized_path, parsed_url.params, parsed_url.query, parsed_url.fragment))
+
 
 def fetch_calendar(url):
     """Fetch an iCal calendar from a URL."""
@@ -46,6 +84,7 @@ def fetch_calendar(url):
     except requests.RequestException as e:
         print(f"Error fetching calendar from {sanitized_url}: {e}")
         return None
+
 
 def merge_calendars(calendar_urls):
     """Merge multiple iCal calendars into one."""
@@ -66,15 +105,20 @@ def merge_calendars(calendar_urls):
 
     return combined_calendar
 
+
 def save_calendar(calendar, output_path):
     """Save the merged calendar to a file."""
     with open(output_path, 'wb') as f:
         f.write(calendar.to_ical())
 
-def sync_calendars(url_file_path, config):
+
+def sync_calendars(url_file_path, config, config_path):
     """Sync calendars as per the configuration."""
-    output_path = config.get('settings', 'output_path')
+    output_path = ensure_randomized_filename(config, config_path)
     sync_interval = int(config.get('settings', 'sync_interval'))
+
+    print(f"Output file: {os.path.basename(output_path)}")
+    print(f"Output directory: {os.path.dirname(output_path)}")
 
     while True:
         print(f"Starting sync at {datetime.now()}")
@@ -86,6 +130,7 @@ def sync_calendars(url_file_path, config):
             save_calendar(merged_calendar, output_path)
         print(f"Sync complete. Next sync in {sync_interval} seconds.")
         time.sleep(sync_interval)
+
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -108,4 +153,4 @@ https://example.com/calendar2.ics
         exit(1)
 
     config = load_config(CONFIG_PATH)
-    sync_calendars(URL_FILE_PATH, config)
+    sync_calendars(URL_FILE_PATH, config, CONFIG_PATH)
