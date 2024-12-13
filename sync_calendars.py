@@ -7,6 +7,7 @@ from datetime import datetime
 from urllib.parse import urlparse, urlunparse, quote, unquote
 import random
 import string
+from pytz import timezone, UTC
 
 
 def load_config(config_path):
@@ -86,6 +87,48 @@ def fetch_calendar(url):
         return None
 
 
+# Mapping of Microsoft time zone names to IANA time zones
+MICROSOFT_TO_IANA_TZ = {
+    "W. Europe Standard Time": "Europe/Berlin",
+    "Pacific Standard Time": "America/Los_Angeles",
+    "Eastern Standard Time": "America/New_York",
+    "Central European Standard Time": "Europe/Belgrade",
+    "Greenwich Standard Time": "Europe/London",
+    "GMT Standard Time": "Europe/London",
+    # Add more mappings as needed
+}
+
+
+def normalize_event_timezone(event):
+    """Normalize time zones in VEVENT components."""
+    for time_key in ['DTSTART', 'DTEND']:
+        if time_key in event:
+            try:
+                # Check if TZID exists in the params
+                tzid = event[time_key].params.get('TZID')
+                if tzid:
+                    iana_tz = MICROSOFT_TO_IANA_TZ.get(tzid, None)
+                    if iana_tz:
+                        # Use mapped IANA time zone
+                        event_tz = timezone(iana_tz)
+                        event[time_key].dt = event[time_key].dt.astimezone(event_tz)
+                    else:
+                        # Log the unknown TZID and fallback to UTC
+                        print(f"Unknown TZID '{tzid}', falling back to UTC.")
+                        event[time_key].dt = event[time_key].dt.astimezone(UTC)
+                else:
+                    # Handle floating times (no TZID) as UTC
+                    if isinstance(event[time_key].dt, datetime):
+                        print(f"No TZID for {time_key}, assuming UTC.")
+                        event[time_key].dt = event[time_key].dt.replace(tzinfo=UTC)
+            except Exception as e:
+                print(f"Error normalizing timezone for {time_key}: {e}")
+
+    # Ensure UTC for final output
+    for time_key in ['DTSTART', 'DTEND']:
+        if time_key in event and isinstance(event[time_key].dt, datetime):
+            event[time_key].dt = event[time_key].dt.astimezone(UTC)
+
 def merge_calendars(calendar_urls):
     """Merge multiple iCal calendars into one."""
     combined_calendar = icalendar.Calendar()
@@ -99,6 +142,8 @@ def merge_calendars(calendar_urls):
                 calendar = icalendar.Calendar.from_ical(calendar_data)
                 for component in calendar.walk():
                     if component.name == "VEVENT":
+                        # Normalize time zones in events
+                        normalize_event_timezone(component)
                         combined_calendar.add_component(component)
             except ValueError as e:
                 print(f"Error parsing calendar from {url}: {e}")
