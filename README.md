@@ -65,6 +65,7 @@ The `config.ini` file contains the following settings:
 - **`retries`**: Number of retry attempts if fetching a calendar fails.
 - **`delay`**: Time in seconds to wait between retry attempts.
 - **`timeout`**: Maximum time in seconds to wait for a response from a calendar URL.
+- **`show_details`**: Boolean. Set to `true` to include event details (summary, description, location, etc.) in the merged calendar. Set to `false` to anonymize events and show only availability (e.g., "Busy").
 
 ### Example Configuration File (`config.ini`)
 

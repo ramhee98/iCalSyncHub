@@ -145,7 +145,20 @@ def add_timezones_to_calendar(target_calendar, timezones):
         target_calendar.add_component(timezone)
 
 
-def merge_calendars(calendar_urls, retries, delay, timeout):
+def anonymize_event(event):
+    """Anonymize event details to show only availability."""
+    event['SUMMARY'] = "Busy"  # Replace with generic text
+    if 'DESCRIPTION' in event:
+        del event['DESCRIPTION']  # Remove description
+    if 'LOCATION' in event:
+        del event['LOCATION']  # Remove location
+    if 'ATTENDEE' in event:
+        del event['ATTENDEE']  # Remove attendee details
+    if 'ORGANIZER' in event:
+        del event['ORGANIZER']  # Remove organizer details
+
+
+def merge_calendars(calendar_urls, retries, delay, timeout, show_details):
     """Merge multiple iCal calendars into one."""
     combined_calendar = icalendar.Calendar()
     combined_calendar.add('prodid', '-//Merged Calendar//Example//EN')
@@ -160,7 +173,8 @@ def merge_calendars(calendar_urls, retries, delay, timeout):
                 add_timezones_to_calendar(combined_calendar, timezones)
                 for component in calendar.walk():
                     if component.name == "VEVENT":
-                        # Normalize time zones in events
+                        if not show_details:
+                            anonymize_event(component)
                         normalize_event_timezone(component)
                         combined_calendar.add_component(component)
             except ValueError as e:
@@ -182,6 +196,7 @@ def sync_calendars(url_file_path, config, config_path):
     retries = int(config.get('settings', 'retries', fallback=3))
     delay = int(config.get('settings', 'delay', fallback=5))
     timeout = int(config.get('settings', 'timeout', fallback=10))
+    show_details = config.getboolean('settings', 'show_details', fallback=True)
 
     print(f"Output file: {os.path.basename(output_path)}")
     print(f"Output directory: {os.path.dirname(output_path)}")
@@ -192,7 +207,7 @@ def sync_calendars(url_file_path, config, config_path):
         if not calendar_urls:
             print("No valid calendar URLs found.")
         else:
-            merged_calendar = merge_calendars(calendar_urls, retries, delay, timeout)
+            merged_calendar = merge_calendars(calendar_urls, retries, delay, timeout, show_details)
             save_calendar(merged_calendar, output_path)
         print(f"Sync complete.")
 
