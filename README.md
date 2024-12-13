@@ -35,8 +35,8 @@ cd iCalSyncHub
 2. Copy the config_template.ini file and customize it according to your requirements:
 
 ```bash
-cp config_template.ini template.ini
-nano template.ini
+cp config_template.ini config.ini
+nano config.ini
 ```
 
 - **`output_path`**: Path where the merged calendar file will be saved.
