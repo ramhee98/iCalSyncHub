@@ -16,11 +16,12 @@ iCalSyncHub is a lightweight Python program that synchronizes multiple online iC
 - Required Python libraries:
   - `requests`
   - `icalendar`
+  - `pytz`
 
 Install the dependencies using pip:
 
 ```bash
-pip install requests icalendar
+pip install requests icalendar pytz
 ```
 
 ## Usage
