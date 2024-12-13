@@ -8,6 +8,7 @@ from urllib.parse import urlparse, urlunparse, quote, unquote
 import random
 import string
 from pytz import timezone, UTC
+from pytz.exceptions import UnknownTimeZoneError
 
 
 def load_config(config_path):
@@ -101,7 +102,7 @@ MICROSOFT_TO_IANA_TZ = {
 
 def normalize_event_timezone(event):
     """Normalize time zones in VEVENT components."""
-    for time_key in ['DTSTART', 'DTEND']:
+    for time_key in ['DTSTART', 'DTEND', 'RECURRENCE-ID']:
         if time_key in event:
             try:
                 # Check if TZID exists in the params
@@ -124,7 +125,7 @@ def normalize_event_timezone(event):
             except Exception as e:
                 print(f"Error normalizing timezone for {time_key}: {e}")
 
-    # Ensure UTC for final output
+    # Ensure UTC for final output, especially for recurring events
     for time_key in ['DTSTART', 'DTEND']:
         if time_key in event and isinstance(event[time_key].dt, datetime):
             event[time_key].dt = event[time_key].dt.astimezone(UTC)
