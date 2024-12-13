@@ -7,7 +7,7 @@ from datetime import datetime
 from urllib.parse import urlparse, urlunparse, quote, unquote
 import random
 import string
-from pytz import timezone, UTC
+from pytz import timezone, UTC, all_timezones
 from pytz.exceptions import UnknownTimeZoneError
 
 
@@ -109,18 +109,22 @@ def normalize_event_timezone(event):
     for time_key in ['DTSTART', 'DTEND', 'RECURRENCE-ID']:
         if time_key in event:
             try:
-                # Check if TZID exists in the params
                 tzid = event[time_key].params.get('TZID')
                 if tzid:
-                    iana_tz = MICROSOFT_TO_IANA_TZ.get(tzid, None)
-                    if iana_tz:
-                        # Use mapped IANA time zone
-                        event_tz = timezone(iana_tz)
+                    # Check if TZID is a valid IANA time zone
+                    if tzid in all_timezones:
+                        event_tz = timezone(tzid)
                         event[time_key].dt = event[time_key].dt.astimezone(event_tz)
                     else:
-                        # Log the unknown TZID and fallback to UTC
-                        print(f"Unknown TZID '{tzid}', falling back to UTC.")
-                        event[time_key].dt = event[time_key].dt.astimezone(UTC)
+                        # Fall back to MICROSOFT_TO_IANA_TZ or UTC
+                        print(f"Unknown IANA TZID '{tzid}', attempting to map.")
+                        iana_tz = MICROSOFT_TO_IANA_TZ.get(tzid, None)
+                        if iana_tz:
+                            event_tz = timezone(iana_tz)
+                            event[time_key].dt = event[time_key].dt.astimezone(event_tz)
+                        else:
+                            print(f"Unknown TZID '{tzid}', falling back to UTC.")
+                            event[time_key].dt = event[time_key].dt.astimezone(UTC)
                 else:
                     # Handle floating times (no TZID) as UTC
                     if isinstance(event[time_key].dt, datetime):
