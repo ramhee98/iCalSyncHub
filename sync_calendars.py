@@ -114,29 +114,35 @@ def normalize_event_timezone(event):
                     # Check if TZID is a valid IANA time zone
                     if tzid in all_timezones:
                         event_tz = timezone(tzid)
-                        event[time_key].dt = event[time_key].dt.astimezone(event_tz)
+                        event[time_key].dt = event[time_key].dt.replace(tzinfo=event_tz)
                     else:
-                        # Fall back to MICROSOFT_TO_IANA_TZ or UTC
+                        # Fall back to MICROSOFT_TO_IANA_TZ or preserve original
                         print(f"Unknown IANA TZID '{tzid}', attempting to map.")
-                        iana_tz = MICROSOFT_TO_IANA_TZ.get(tzid, None)
+                        iana_tz = MICROSOFT_TO_IANA_TZ.get(tzid)
                         if iana_tz:
                             event_tz = timezone(iana_tz)
-                            event[time_key].dt = event[time_key].dt.astimezone(event_tz)
+                            event[time_key].dt = event[time_key].dt.replace(tzinfo=event_tz)
                         else:
-                            print(f"Unknown TZID '{tzid}', falling back to UTC.")
-                            event[time_key].dt = event[time_key].dt.astimezone(UTC)
+                            print(f"Unknown TZID '{tzid}', preserving original.")
                 else:
-                    # Handle floating times (no TZID) as UTC
-                    if isinstance(event[time_key].dt, datetime):
-                        print(f"No TZID for {time_key}, assuming UTC.")
-                        event[time_key].dt = event[time_key].dt.replace(tzinfo=UTC)
+                    # Handle floating times (no TZID)
+                    print(f"No TZID for {time_key}, assuming default local timezone.")
             except Exception as e:
                 print(f"Error normalizing timezone for {time_key}: {e}")
 
-    # Ensure UTC for final output, especially for recurring events
-    for time_key in ['DTSTART', 'DTEND']:
-        if time_key in event and isinstance(event[time_key].dt, datetime):
-            event[time_key].dt = event[time_key].dt.astimezone(UTC)
+
+def extract_timezones(calendar):
+    """Extract and return VTIMEZONE components from a calendar."""
+    timezones = []
+    for component in calendar.walk():
+        if component.name == "VTIMEZONE":
+            timezones.append(component)
+    return timezones
+
+def add_timezones_to_calendar(target_calendar, timezones):
+    """Add VTIMEZONE components to the target calendar."""
+    for timezone in timezones:
+        target_calendar.add_component(timezone)
 
 
 def merge_calendars(calendar_urls, retries, delay, timeout):
@@ -150,6 +156,8 @@ def merge_calendars(calendar_urls, retries, delay, timeout):
         if calendar_data:
             try:
                 calendar = icalendar.Calendar.from_ical(calendar_data)
+                timezones = extract_timezones(calendar)
+                add_timezones_to_calendar(combined_calendar, timezones)
                 for component in calendar.walk():
                     if component.name == "VEVENT":
                         # Normalize time zones in events
