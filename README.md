@@ -77,6 +77,7 @@ sync_interval = 300
 retries = 3
 delay = 5
 timeout = 10
+show_details = true
 ```
 
 ## License
