@@ -1,6 +1,7 @@
 # Ignore the URL file
 calendar_urls.txt
 config.ini
+*.ics
 
 # Ignore virtual environment folder
 venv/
