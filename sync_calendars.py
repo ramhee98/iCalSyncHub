@@ -76,16 +76,20 @@ def sanitize_url(url):
     return urlunparse((parsed_url.scheme, parsed_url.netloc, sanitized_path, parsed_url.params, parsed_url.query, parsed_url.fragment))
 
 
-def fetch_calendar(url):
-    """Fetch an iCal calendar from a URL."""
+def fetch_calendar(url, retries, delay, timeout):
+    """Fetch an iCal calendar from a URL with retries and timeout."""
     sanitized_url = sanitize_url(url)
-    try:
-        response = requests.get(sanitized_url)
-        response.raise_for_status()
-        return response.text
-    except requests.RequestException as e:
-        print(f"Error fetching calendar from {sanitized_url}: {e}")
-        return None
+    for attempt in range(retries):
+        try:
+            response = requests.get(sanitized_url, timeout=timeout)
+            response.raise_for_status()
+            return response.text
+        except requests.RequestException as e:
+            print(f"Error fetching calendar from {sanitized_url} (Attempt {attempt + 1}/{retries}): {e}")
+            if attempt < retries - 1:
+                time.sleep(delay)
+    print(f"Failed to fetch calendar from {sanitized_url} after {retries} attempts.")
+    return None
 
 
 # Mapping of Microsoft time zone names to IANA time zones
@@ -130,14 +134,15 @@ def normalize_event_timezone(event):
         if time_key in event and isinstance(event[time_key].dt, datetime):
             event[time_key].dt = event[time_key].dt.astimezone(UTC)
 
-def merge_calendars(calendar_urls):
+
+def merge_calendars(calendar_urls, retries, delay, timeout):
     """Merge multiple iCal calendars into one."""
     combined_calendar = icalendar.Calendar()
     combined_calendar.add('prodid', '-//Merged Calendar//Example//EN')
     combined_calendar.add('version', '2.0')
 
     for url in calendar_urls:
-        calendar_data = fetch_calendar(url)
+        calendar_data = fetch_calendar(url, retries, delay, timeout)
         if calendar_data:
             try:
                 calendar = icalendar.Calendar.from_ical(calendar_data)
@@ -162,6 +167,9 @@ def sync_calendars(url_file_path, config, config_path):
     """Sync calendars as per the configuration."""
     output_path = ensure_randomized_filename(config, config_path)
     sync_interval = int(config.get('settings', 'sync_interval'))
+    retries = int(config.get('settings', 'retries', fallback=3))
+    delay = int(config.get('settings', 'delay', fallback=5))
+    timeout = int(config.get('settings', 'timeout', fallback=10))
 
     print(f"Output file: {os.path.basename(output_path)}")
     print(f"Output directory: {os.path.dirname(output_path)}")
@@ -172,7 +180,7 @@ def sync_calendars(url_file_path, config, config_path):
         if not calendar_urls:
             print("No valid calendar URLs found.")
         else:
-            merged_calendar = merge_calendars(calendar_urls)
+            merged_calendar = merge_calendars(calendar_urls, retries, delay, timeout)
             save_calendar(merged_calendar, output_path)
         print(f"Sync complete.")
 

@@ -40,10 +40,6 @@ cp config_template.ini config.ini
 nano config.ini
 ```
 
-- **`output_path`**: Path where the merged calendar file will be saved.
-- **`filename`**: Filename of the .ics file, will be randomized if empty.
-- **`sync_interval`**: Time interval (in seconds) between calendar syncs, if set to 0 it will only sync once.
-
 3. Create a calendar_urls.txt file in the project directory, listing the calendar URLs to sync:
 
 ```bash
@@ -58,6 +54,29 @@ python sync_calendars.py
 ```
 
 The program will fetch the specified calendars, merge their events, and save the result as an iCal file at the configured location. It will then periodically sync the calendars based on the specified interval.
+
+### Configuration Options
+
+The `config.ini` file contains the following settings:
+
+- **`output_path`**: Path where the merged calendar file will be saved.
+- **`filename`**: Optional. Predefined filename for the output calendar. If not set, a random filename will be generated.
+- **`sync_interval`**: Time interval (in seconds) between calendar syncs, if set to 0 it will only sync once.
+- **`retries`**: Number of retry attempts if fetching a calendar fails.
+- **`delay`**: Time in seconds to wait between retry attempts.
+- **`timeout`**: Maximum time in seconds to wait for a response from a calendar URL.
+
+### Example Configuration File (`config.ini`)
+
+```ini
+[settings]
+output_path = /var/www/html/
+filename = mycal.ics
+sync_interval = 300
+retries = 3
+delay = 5
+timeout = 10
+```
 
 ## License
 
