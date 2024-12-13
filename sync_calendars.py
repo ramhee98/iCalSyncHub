@@ -128,7 +128,13 @@ def sync_calendars(url_file_path, config, config_path):
         else:
             merged_calendar = merge_calendars(calendar_urls)
             save_calendar(merged_calendar, output_path)
-        print(f"Sync complete. Next sync in {sync_interval} seconds.")
+        print(f"Sync complete.")
+
+        if sync_interval == 0:
+            print("Sync interval is 0. Ending after one sync.")
+            break
+
+        print(f"Next sync in {sync_interval} seconds.")
         time.sleep(sync_interval)
 
 

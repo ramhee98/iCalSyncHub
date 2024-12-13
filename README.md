@@ -41,7 +41,7 @@ nano config.ini
 
 - **`output_path`**: Path where the merged calendar file will be saved.
 - **`filename`**: Filename of the .ics file, will be randomized if empty.
-- **`sync_interval`**: Time interval (in seconds) between calendar syncs.
+- **`sync_interval`**: Time interval (in seconds) between calendar syncs, if set to 0 it will only sync once.
 
 3. Create a calendar_urls.txt file in the project directory, listing the calendar URLs to sync:
 
