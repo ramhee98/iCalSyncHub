@@ -64,6 +64,31 @@ def setup_logging(config):
     return logger
 
 
+def measure_time(log_level='DEBUG'):
+    """
+    Decorator factory to measure and log the execution time of a function.
+
+    Args:
+        log_level (str): Logging level for the message ('INFO' or 'DEBUG').
+    """
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            elapsed_time = time.time() - start_time
+            log_message = f"{func.__name__} took {elapsed_time:.3f} seconds."
+            
+            # Log with the specified level
+            if log_level.upper() == 'INFO':
+                logger.info(log_message)
+            else:
+                logger.debug(log_message)
+            
+            return result
+        return wrapper
+    return decorator
+
+
 def load_config(config_path):
     """Load configuration from a file."""
     config = configparser.ConfigParser(interpolation=None)  # Disable interpolation
@@ -118,6 +143,7 @@ def sanitize_url(url):
     return urlunparse((parsed_url.scheme, parsed_url.netloc, sanitized_path, parsed_url.params, parsed_url.query, parsed_url.fragment))
 
 
+@measure_time(log_level='DEBUG')
 def fetch_calendar(url, retries, delay, timeout):
     """Fetch an iCal calendar from a URL with retries and timeout."""
     sanitized_url = sanitize_url(url)
@@ -154,6 +180,7 @@ def extract_timezones(calendar):
             timezones.append(component)
     return timezones
 
+
 def add_timezones_to_calendar(target_calendar, timezones):
     """Add VTIMEZONE components to the target calendar."""
     for timezone in timezones:
@@ -173,6 +200,7 @@ def anonymize_event(event):
         del event['ORGANIZER']  # Remove organizer details
 
 
+@measure_time(log_level='DEBUG')
 def merge_calendars(calendar_urls, retries, delay, timeout, show_details):
     """Merge multiple iCal calendars into one."""
     combined_calendar = icalendar.Calendar()
@@ -198,6 +226,7 @@ def merge_calendars(calendar_urls, retries, delay, timeout, show_details):
     return combined_calendar
 
 
+@measure_time(log_level='DEBUG')
 def save_calendar(calendar, output_path):
     """Save the merged calendar to a file."""
     # Serialize the calendar
@@ -211,6 +240,7 @@ def save_calendar(calendar, output_path):
         f.write(ical_output)
 
 
+@measure_time(log_level='DEBUG')
 def validate_calendar(file_path):
     try:
         with open(file_path, 'r') as f:
@@ -242,7 +272,7 @@ def sync_calendars(url_file_path, config, config_path, logger):
             merged_calendar = merge_calendars(calendar_urls, retries, delay, timeout, show_details)
             save_calendar(merged_calendar, output_path)
             validate_calendar(output_path)
-        logger.info(f"Sync complete after {round(time.time() - start_time, 3)}s.")
+        logger.info(f"Sync completed in {round(time.time() - start_time, 3)} seconds.")
 
         if sync_interval == 0:
             logger.info("Sync interval is 0. Ending after one sync.")
