@@ -185,8 +185,15 @@ def merge_calendars(calendar_urls, retries, delay, timeout, show_details):
 
 def save_calendar(calendar, output_path):
     """Save the merged calendar to a file."""
-    with open(output_path, 'wb') as f:
-        f.write(calendar.to_ical())
+    # Serialize the calendar
+    ical_output = calendar.to_ical().decode('utf-8')
+
+    # Fix TZID quoting globally
+    ical_output = ical_output.replace('TZID="', 'TZID=').replace('"', '')
+
+    # Save the corrected data
+    with open(output_path, 'w') as f:
+        f.write(ical_output)
 
 
 def sync_calendars(url_file_path, config, config_path):
