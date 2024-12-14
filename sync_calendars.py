@@ -102,7 +102,9 @@ def load_urls(file_path):
         with open(file_path, 'r') as f:
             return [line.strip() for line in f if line.strip() and not line.startswith('#')]
     except FileNotFoundError:
-        print(f"URL file '{file_path}' not found.")
+        logger.critical(f"URL file '{file_path}' not found.")
+        logger.critical("Sync aborted, exiting!")
+        exit(1)
         return []
 
 
@@ -125,10 +127,10 @@ def fetch_calendar(url, retries, delay, timeout):
             response.raise_for_status()
             return response.text
         except requests.RequestException as e:
-            print(f"Error fetching calendar from {sanitized_url} (Attempt {attempt + 1}/{retries}): {e}")
+            logger.warning(f"Error fetching calendar from {sanitized_url} (Attempt {attempt + 1}/{retries}): {e}")
             if attempt < retries - 1:
                 time.sleep(delay)
-    print(f"Failed to fetch calendar from {sanitized_url} after {retries} attempts.")
+    logger.error(f"Failed to fetch calendar from {sanitized_url} after {retries} attempts.")
     return None
 
 
@@ -141,7 +143,7 @@ def normalize_event_timezone(event):
                 if tzid and tzid in all_timezones:
                     event[time_key].dt = event[time_key].dt.replace(tzinfo=timezone(tzid))
             except Exception as e:
-                print(f"Error normalizing timezone for {time_key}: {e}")
+                logger.warning(f"Error normalizing timezone for {time_key}: {e}")
 
 
 def extract_timezones(calendar):
@@ -191,7 +193,7 @@ def merge_calendars(calendar_urls, retries, delay, timeout, show_details):
                         normalize_event_timezone(component)
                         combined_calendar.add_component(component)
             except ValueError as e:
-                print(f"Error parsing calendar from {url}: {e}")
+                logger.error(f"Error parsing calendar from {url}: {e}")
 
     return combined_calendar
 
@@ -225,7 +227,7 @@ def sync_calendars(url_file_path, config, config_path, logger):
         logger.info(f"Starting sync at {datetime.now()}")
         calendar_urls = load_urls(url_file_path)
         if not calendar_urls:
-            logger.warning("No valid calendar URLs found.")
+            logger.error("No valid calendar URLs found.")
         else:
             merged_calendar = merge_calendars(calendar_urls, retries, delay, timeout, show_details)
             save_calendar(merged_calendar, output_path)
@@ -246,17 +248,7 @@ if __name__ == "__main__":
 
     if not os.path.exists(CONFIG_PATH):
         print(f"Configuration file '{CONFIG_PATH}' not found.")
-        exit(1)
-
-    if not os.path.exists(URL_FILE_PATH):
-        print(f"URL file '{URL_FILE_PATH}' not found.")
-        print("Please create a URL file with the following format:\n")
-        print("""
-# Example of a URL file
-https://example.com/calendar1.ics
-https://example.com/calendar2.ics
-# Comments are ignored
-        """)
+        print("Sync aborted, exiting!")
         exit(1)
 
     config = load_config(CONFIG_PATH)
