@@ -161,7 +161,7 @@ def anonymize_event(event):
 def merge_calendars(calendar_urls, retries, delay, timeout, show_details):
     """Merge multiple iCal calendars into one."""
     combined_calendar = icalendar.Calendar()
-    combined_calendar.add('prodid', '-//Merged Calendar//Example//EN')
+    combined_calendar.add('prodid', '-//ramhee98//iCalSyncHub//EN')
     combined_calendar.add('version', '2.0')
 
     for url in calendar_urls:
