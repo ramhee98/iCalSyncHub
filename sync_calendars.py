@@ -44,19 +44,13 @@ def resolve_output_filename(config, config_path):
 
 
 def load_urls(file_path):
-    """Load URLs from a file, ignoring comments and empty lines."""
-    urls = []
+    """Load valid calendar URLs from a file."""
     try:
         with open(file_path, 'r') as f:
-            for line in f:
-                line = line.strip()
-                # Skip comments and empty lines
-                if line.startswith('#') or not line:
-                    continue
-                urls.append(line)
+            return [line.strip() for line in f if line.strip() and not line.startswith('#')]
     except FileNotFoundError:
         print(f"URL file '{file_path}' not found.")
-    return urls
+        return []
 
 
 def sanitize_url(url):
