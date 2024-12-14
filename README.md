@@ -66,6 +66,9 @@ The `config.ini` file contains the following settings:
 - **`delay`**: Time in seconds to wait between retry attempts.
 - **`timeout`**: Maximum time in seconds to wait for a response from a calendar URL.
 - **`show_details`**: Boolean. Set to `true` to include event details (summary, description, location, etc.) in the merged calendar. Set to `false` to anonymize events and show only availability (e.g., "Busy").
+- **`log_level`**: Logging level to control the verbosity of the output. Options are `DEBUG`, `INFO`, `WARNING`, `ERROR`, and `CRITICAL`. Default is `INFO`.
+- **`log_file`**: File path for the log output. If left blank, logs will only appear in the console.
+
 
 ### Example Configuration File (`config.ini`)
 
@@ -78,6 +81,8 @@ retries = 3
 delay = 5
 timeout = 10
 show_details = true
+log_level = INFO
+log_file = ./icalsynchub.log
 ```
 
 ## License

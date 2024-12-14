@@ -3,11 +3,31 @@ import time
 import requests
 import icalendar
 import configparser
+import logging
 from datetime import datetime
 from urllib.parse import urlparse, urlunparse, quote, unquote
 import random
 import string
 from pytz import timezone, all_timezones
+
+
+def setup_logging(config):
+    """Set up logging based on configuration."""
+    log_level = config.get('settings', 'log_level', fallback='INFO').upper()
+    log_file = config.get('settings', 'log_file', fallback='')
+
+    # Configure logging
+    log_level = getattr(logging, log_level, logging.INFO)
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file) if log_file else logging.StreamHandler()
+        ]
+    )
+    logger = logging.getLogger(__name__)
+    logger.info("Logging setup complete.")
+    return logger
 
 
 def load_config(config_path):
@@ -155,7 +175,7 @@ def save_calendar(calendar, output_path):
         f.write(ical_output)
 
 
-def sync_calendars(url_file_path, config, config_path):
+def sync_calendars(url_file_path, config, config_path, logger):
     """Sync calendars as per the configuration."""
     output_path = resolve_output_filename(config, config_path)
     sync_interval = int(config.get('settings', 'sync_interval'))
@@ -164,24 +184,24 @@ def sync_calendars(url_file_path, config, config_path):
     timeout = int(config.get('settings', 'timeout', fallback=10))
     show_details = config.getboolean('settings', 'show_details', fallback=True)
 
-    print(f"Output file: {os.path.basename(output_path)}")
-    print(f"Output directory: {os.path.dirname(output_path)}")
+    logger.info(f"Output file: {os.path.basename(output_path)}")
+    logger.info(f"Output directory: {os.path.dirname(output_path)}")
 
     while True:
-        print(f"Starting sync at {datetime.now()}")
+        logger.info(f"Starting sync at {datetime.now()}")
         calendar_urls = load_urls(url_file_path)
         if not calendar_urls:
-            print("No valid calendar URLs found.")
+            logger.warning("No valid calendar URLs found.")
         else:
             merged_calendar = merge_calendars(calendar_urls, retries, delay, timeout, show_details)
             save_calendar(merged_calendar, output_path)
-        print(f"Sync complete.")
+        logger.info("Sync complete.")
 
         if sync_interval == 0:
-            print("Sync interval is 0. Ending after one sync.")
+            logger.info("Sync interval is 0. Ending after one sync.")
             break
 
-        print(f"Next sync in {sync_interval} seconds.")
+        logger.info(f"Next sync in {sync_interval} seconds.")
         time.sleep(sync_interval)
 
 
@@ -206,4 +226,5 @@ https://example.com/calendar2.ics
         exit(1)
 
     config = load_config(CONFIG_PATH)
-    sync_calendars(URL_FILE_PATH, config, CONFIG_PATH)
+    logger = setup_logging(config)
+    sync_calendars(URL_FILE_PATH, config, CONFIG_PATH, logger)
