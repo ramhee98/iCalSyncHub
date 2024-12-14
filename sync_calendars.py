@@ -29,25 +29,18 @@ def generate_random_filename():
     return ''.join(random.choices(string.ascii_letters + string.digits, k=64)) + '.ics'
 
 
-def ensure_randomized_filename(config, config_path):
-    """Ensure that the filename is randomized and saved to the configuration."""
+def resolve_output_filename(config, config_path):
+    """Ensure the filename is defined and saved to the configuration."""
     output_path = config.get('settings', 'output_path', fallback='./')
     filename = config.get('settings', 'filename', fallback=None)
 
-    # Check if the filename is already defined
-    if filename:
-        print(f"Using existing filename: {filename}")
-        return os.path.join(output_path, filename)
-
     # Generate a random filename if not already defined
-    random_filename = generate_random_filename()
-    config.set('settings', 'filename', random_filename)
-    save_config(config, config_path)
+    if not filename:
+        filename = generate_random_filename()
+        config.set('settings', 'filename', filename)
+        save_config(config, config_path)
 
-    randomized_output_path = os.path.join(output_path, random_filename)
-    print(f"Generated random filename: {random_filename}")
-    print(f"Full output path: {randomized_output_path}")
-    return randomized_output_path
+    return os.path.join(output_path, filename)
 
 
 def load_urls(file_path):
@@ -198,7 +191,7 @@ def save_calendar(calendar, output_path):
 
 def sync_calendars(url_file_path, config, config_path):
     """Sync calendars as per the configuration."""
-    output_path = ensure_randomized_filename(config, config_path)
+    output_path = resolve_output_filename(config, config_path)
     sync_interval = int(config.get('settings', 'sync_interval'))
     retries = int(config.get('settings', 'retries', fallback=3))
     delay = int(config.get('settings', 'delay', fallback=5))
