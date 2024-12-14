@@ -211,6 +211,15 @@ def save_calendar(calendar, output_path):
         f.write(ical_output)
 
 
+def validate_calendar(file_path):
+    try:
+        with open(file_path, 'r') as f:
+            icalendar.Calendar.from_ical(f.read())
+        logger.debug("Exported ICS file is valid.")
+    except Exception as e:
+        logger.error(f"Validation of exported ICS file failed: {e}")
+
+
 def sync_calendars(url_file_path, config, config_path, logger):
     """Sync calendars as per the configuration."""
     output_path = resolve_output_filename(config, config_path)
@@ -232,6 +241,7 @@ def sync_calendars(url_file_path, config, config_path, logger):
         else:
             merged_calendar = merge_calendars(calendar_urls, retries, delay, timeout, show_details)
             save_calendar(merged_calendar, output_path)
+            validate_calendar(output_path)
         logger.info(f"Sync complete after {round(time.time() - start_time, 3)}s.")
 
         if sync_interval == 0:
