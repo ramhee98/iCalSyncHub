@@ -66,8 +66,15 @@ The `config.ini` file contains the following settings:
 - **`delay`**: Time in seconds to wait between retry attempts.
 - **`timeout`**: Maximum time in seconds to wait for a response from a calendar URL.
 - **`show_details`**: Boolean. Set to `true` to include event details (summary, description, location, etc.) in the merged calendar. Set to `false` to anonymize events and show only availability (e.g., "Busy").
+- **`log_output`**: Specify where logs should be sent. Options are:
+  - `console`: Logs are displayed only on the console.
+  - `file`: Logs are saved only to the specified file.
+  - `both`: Logs are sent to both the console and the file (default).
+  - `none`: Disable logging entirely.
 - **`log_level`**: Logging level to control the verbosity of the output. Options are `DEBUG`, `INFO`, `WARNING`, `ERROR`, and `CRITICAL`. Default is `INFO`.
-- **`log_file`**: File path for the log output. If left blank, logs will only appear in the console.
+- **`log_file`**: File path for the log output. Default is `icalsynchub.log`. Logs will be rotated if a file path is provided.
+- **`max_log_file_size`**: Maximum size of a single log file in MB before rotation. Default in MB is `10`.
+- **`log_backup_count`**: Number of backup log files to keep after rotation. Default is `5`.
 
 
 ### Example Configuration File (`config.ini`)
@@ -81,8 +88,11 @@ retries = 3
 delay = 5
 timeout = 10
 show_details = true
+log_output = both
 log_level = INFO
-log_file = ./icalsynchub.log
+log_file = icalsynchub.log
+max_log_file_size = 10
+log_backup_count = 5
 ```
 
 ## License

@@ -4,6 +4,7 @@ import requests
 import icalendar
 import configparser
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from urllib.parse import urlparse, urlunparse, quote, unquote
 import random
@@ -12,21 +13,54 @@ from pytz import timezone, all_timezones
 
 
 def setup_logging(config):
-    """Set up logging based on configuration."""
+    """Set up logging with rotation based on configuration."""
+    # Get log level from config, default to INFO
     log_level = config.get('settings', 'log_level', fallback='INFO').upper()
-    log_file = config.get('settings', 'log_file', fallback='')
+    
+    # Validate log level
+    valid_log_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+    if log_level not in valid_log_levels:
+        raise ValueError(f"Invalid log_level specified in config.ini: {log_level}. Must be one of {', '.join(valid_log_levels)}")
 
-    # Configure logging
-    log_level = getattr(logging, log_level, logging.INFO)
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file) if log_file else logging.StreamHandler()
-        ]
-    )
+    # Get log output and file settings
+    default = 'icalsynchub.log'
+    log_output = config.get('settings', 'log_output', fallback='both').lower()
+    log_file = config.get('settings', 'log_file', fallback=default)
+    if not log_file.strip(): log_file=default
+    max_log_file_size = int(config.get('settings', 'max_log_file_size', fallback=10)) * 1024 * 1024  # MB to bytes
+    log_backup_count = int(config.get('settings', 'log_backup_count', fallback=5))
+
+    # Configure logger
     logger = logging.getLogger(__name__)
-    logger.info("Logging setup complete.")
+    logger.setLevel(getattr(logging, log_level))
+
+    # Create handlers based on log_output
+    handlers = []
+
+    if log_output in ('file', 'both') and log_file:
+        if os.path.isdir(log_file):
+            raise ValueError(f"The log_file setting points to a directory, not a file: {log_file}")
+        file_handler = RotatingFileHandler(log_file, maxBytes=max_log_file_size, backupCount=log_backup_count)
+        file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(file_formatter)
+        handlers.append(file_handler)
+
+    if log_output in ('console', 'both'):
+        console_handler = logging.StreamHandler()
+        console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        console_handler.setFormatter(console_formatter)
+        handlers.append(console_handler)
+
+    # No logging (disable all handlers)
+    if log_output == 'none':
+        logger.disabled = True
+        return logger
+
+    # Add handlers to logger
+    for handler in handlers:
+        logger.addHandler(handler)
+
+    logger.info(f"Logging initialized with level {log_level}.")
     return logger
 
 
