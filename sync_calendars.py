@@ -225,13 +225,14 @@ def sync_calendars(url_file_path, config, config_path, logger):
 
     while True:
         logger.info(f"Starting sync at {datetime.now()}")
+        start_time = time.time()
         calendar_urls = load_urls(url_file_path)
         if not calendar_urls:
             logger.error("No valid calendar URLs found.")
         else:
             merged_calendar = merge_calendars(calendar_urls, retries, delay, timeout, show_details)
             save_calendar(merged_calendar, output_path)
-        logger.info("Sync complete.")
+        logger.info(f"Sync complete after {round(time.time() - start_time, 3)}s.")
 
         if sync_interval == 0:
             logger.info("Sync interval is 0. Ending after one sync.")
