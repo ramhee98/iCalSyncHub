@@ -7,8 +7,7 @@ from datetime import datetime
 from urllib.parse import urlparse, urlunparse, quote, unquote
 import random
 import string
-from pytz import timezone, UTC, all_timezones
-from pytz.exceptions import UnknownTimeZoneError
+from pytz import timezone, all_timezones
 
 
 def load_config(config_path):
@@ -79,41 +78,14 @@ def fetch_calendar(url, retries, delay, timeout):
     return None
 
 
-# Mapping of Microsoft time zone names to IANA time zones
-MICROSOFT_TO_IANA_TZ = {
-    "W. Europe Standard Time": "Europe/Berlin",
-    "Pacific Standard Time": "America/Los_Angeles",
-    "Eastern Standard Time": "America/New_York",
-    "Central European Standard Time": "Europe/Belgrade",
-    "Greenwich Standard Time": "Europe/London",
-    "GMT Standard Time": "Europe/London",
-    # Add more mappings as needed
-}
-
-
 def normalize_event_timezone(event):
     """Normalize time zones in VEVENT components."""
     for time_key in ['DTSTART', 'DTEND', 'RECURRENCE-ID']:
         if time_key in event:
+            tzid = event[time_key].params.get('TZID')
             try:
-                tzid = event[time_key].params.get('TZID')
-                if tzid:
-                    # Check if TZID is a valid IANA time zone
-                    if tzid in all_timezones:
-                        event_tz = timezone(tzid)
-                        event[time_key].dt = event[time_key].dt.replace(tzinfo=event_tz)
-                    else:
-                        # Fall back to MICROSOFT_TO_IANA_TZ or preserve original
-                        print(f"Unknown IANA TZID '{tzid}', attempting to map.")
-                        iana_tz = MICROSOFT_TO_IANA_TZ.get(tzid)
-                        if iana_tz:
-                            event_tz = timezone(iana_tz)
-                            event[time_key].dt = event[time_key].dt.replace(tzinfo=event_tz)
-                        else:
-                            print(f"Unknown TZID '{tzid}', preserving original.")
-                else:
-                    # Handle floating times (no TZID)
-                    print(f"No TZID for {time_key}, assuming default local timezone.")
+                if tzid and tzid in all_timezones:
+                    event[time_key].dt = event[time_key].dt.replace(tzinfo=timezone(tzid))
             except Exception as e:
                 print(f"Error normalizing timezone for {time_key}: {e}")
 
