@@ -12,6 +12,10 @@ services:
       - ../config.ini:/app/src/config.ini  # Mount the config file
       - ../calendar_urls.txt:/app/src/calendar_urls.txt  # Mount the calendar_urls file
       - ./webserver:/app/webserver       # Shared directory with Nginx
+      - /etc/localtime:/etc/localtime:ro  # Use the host's timezone
+      - /etc/timezone:/etc/timezone:ro    # Use the host's timezone
+    environment:
+      - TZ=${TZ:-Etc/UTC}  # Optional: Allows overriding timezone with environment variable
     networks:
       - app_network
 
@@ -23,6 +27,8 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
       - ./webserver:/usr/share/nginx/html  # Serve files from the shared directory
+      - /etc/localtime:/etc/localtime:ro  # Use the host's timezone
+      - /etc/timezone:/etc/timezone:ro    # Use the host's timezone
     depends_on:
       - app
     networks:
