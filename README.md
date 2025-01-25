@@ -8,8 +8,9 @@ iCalSyncHub is a lightweight Python program that synchronizes multiple online iC
 - **Custom Configuration**: Use a simple `.ini` file to configure calendar URLs, output location, and sync frequency.
 - **Portable Output**: Generates a standard `.ics` file compatible with popular calendar apps like Google Calendar, Outlook, and Apple Calendar.
 - **Error Handling**: Resilient to network errors or invalid calendar formats.
+- **Docker Support**: Use docker instead of Local installation
 
-## Installation
+## Local Installation
 
 ### Prerequisites
 - Python 3.6 or higher
@@ -94,6 +95,24 @@ log_file = icalsynchub.log
 max_log_file_size = 10
 log_backup_count = 5
 ```
+
+## Docker Installation
+
+### Prerequisites
+  - Docker Compose
+
+### Docker-Compose
+
+If you want to use Docker Compose for a multi-container setup (e.g., with a database), follow these steps:
+
+1. Ensure Docker Compose is installed.
+2. Use the provided `docker-compose.yml` file:
+
+    ```
+    docker-compose up
+    ```
+
+3. The application and its dependencies will start as defined in the compose file.
 
 ## License
 
