@@ -6,10 +6,14 @@ WORKDIR /app/src
 
 # Copy the source code into the container
 COPY src/ /app/src
-
-# Install Python dependencies
 COPY requirements.txt /app/
-RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Create a virtual environment and install dependencies
+RUN python3 -m venv /venv && \
+    /venv/bin/pip install --no-cache-dir -r /app/requirements.txt
+
+# Use the virtual environment's Python as the default Python
+ENV PATH="/venv/bin:$PATH"
 
 # Run the Python application
 CMD ["python", "sync_calendars.py"]
