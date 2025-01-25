@@ -9,8 +9,8 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ../config.ini:/app/src/config.ini  # Mount the config file
-      - ../calendar_urls.txt:/app/src/calendar_urls.txt  # Mount the calendar_urls file
+      #- ../config.ini:/app/src/config.ini  # Mount the config file
+      #- ../calendar_urls.txt:/app/src/calendar_urls.txt  # Mount the calendar_urls file
       - ./webserver:/app/webserver       # Shared directory with Nginx
       - /etc/localtime:/etc/localtime:ro  # Use the host's timezone
       - /etc/timezone:/etc/timezone:ro    # Use the host's timezone
