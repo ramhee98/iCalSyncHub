@@ -5,6 +5,7 @@ iCalSyncHub is a lightweight Python program that synchronizes multiple online iC
 ## Features
 - **Multi-Calendar Support**: Combine events from two or more iCal calendars into one.
 - **Automatic Syncing**: Automatically updates the merged calendar at a specified interval.
+- **Date Range Filtering**: Optionally filter events to keep only a configurable time window (e.g., past 14 days and next 2 months).
 - **Custom Configuration**: Use a simple `.ini` file to configure calendar URLs, output location, and sync frequency.
 - **Portable Output**: Generates a standard `.ics` file compatible with popular calendar apps like Google Calendar, Outlook, and Apple Calendar.
 - **Error Handling**: Resilient to network errors or invalid calendar formats.
@@ -66,6 +67,9 @@ The `config.ini` file contains the following settings:
 - **`delay`**: Time in seconds to wait between retry attempts.
 - **`timeout`**: Maximum time in seconds to wait for a response from a calendar URL.
 - **`show_details`**: Boolean. Set to `true` to include event details (summary, description, location, etc.) in the merged calendar. Set to `false` to anonymize events and show only availability (e.g., "Busy").
+- **`filter_by_date`**: Boolean. Set to `true` to enable date range filtering for events. When enabled, only events within the specified time window will be included in the merged calendar. Default is `false`.
+- **`past_days`**: Number of days in the past to include when `filter_by_date` is enabled. For example, `14` includes events from the past 14 days. Default is `14`.
+- **`future_months`**: Number of months in the future to include when `filter_by_date` is enabled. For example, `2` includes events up to 2 months ahead (approximately 60 days). Default is `2`.
 - **`log_output`**: Specify where logs should be sent. Options are:
   - `console`: Logs are displayed only on the console.
   - `file`: Logs are saved only to the specified file.
@@ -88,6 +92,9 @@ retries = 3
 delay = 5
 timeout = 10
 show_details = true
+filter_by_date = false
+past_days = 14
+future_months = 2
 log_output = both
 log_level = INFO
 log_file = icalsynchub.log
