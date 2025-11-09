@@ -5,11 +5,11 @@ import icalendar
 import configparser
 import logging
 from logging.handlers import RotatingFileHandler
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse, urlunparse, quote, unquote
 import random
 import string
-from pytz import timezone, all_timezones
+from pytz import UTC, all_timezones
 
 
 def setup_logging(config):
@@ -200,12 +200,99 @@ def anonymize_event(event):
         del event['ORGANIZER']  # Remove organizer details
 
 
+def get_event_date(event):
+    """Extract the start date from an event, handling various formats."""
+    if 'DTSTART' not in event:
+        return None
+    
+    dt = event['DTSTART'].dt
+    
+    # Handle date-only events (convert to datetime)
+    if isinstance(dt, datetime):
+        # If it's already a datetime, use it
+        event_dt = dt
+    else:
+        # If it's a date, convert to datetime at midnight
+        from datetime import date
+        if isinstance(dt, date):
+            event_dt = datetime.combine(dt, datetime.min.time())
+        else:
+            return None
+    
+    # Convert to UTC if it has timezone info, otherwise assume UTC
+    if event_dt.tzinfo is None:
+        event_dt = event_dt.replace(tzinfo=UTC)
+    else:
+        event_dt = event_dt.astimezone(UTC)
+    
+    return event_dt
+
+
+def should_include_event(event, start_date, end_date):
+    """
+    Determine if an event should be included based on the date range.
+    
+    Args:
+        event: The calendar event to check
+        start_date: Earliest date to include (datetime with timezone)
+        end_date: Latest date to include (datetime with timezone)
+    
+    Returns:
+        bool: True if the event should be included, False otherwise
+    """
+    event_date = get_event_date(event)
+    
+    if event_date is None:
+        # If we can't determine the date, include the event to be safe
+        logger.debug("Event has no valid DTSTART, including by default")
+        return True
+    
+    # Check if event is within the date range
+    if start_date <= event_date <= end_date:
+        return True
+    
+    # For recurring events, check if DTEND exists and spans into our range
+    if 'DTEND' in event:
+        dt_end = event['DTEND'].dt
+        if isinstance(dt_end, datetime):
+            event_end = dt_end
+        else:
+            from datetime import date
+            if isinstance(dt_end, date):
+                event_end = datetime.combine(dt_end, datetime.max.time())
+            else:
+                return False
+        
+        if event_end.tzinfo is None:
+            event_end = event_end.replace(tzinfo=UTC)
+        else:
+            event_end = event_end.astimezone(UTC)
+        
+        # Include if the event spans into our date range
+        if event_date <= end_date and event_end >= start_date:
+            return True
+    
+    return False
+
+
 @measure_time(log_level='DEBUG')
-def merge_calendars(calendar_urls, retries, delay, timeout, show_details):
+def merge_calendars(calendar_urls, retries, delay, timeout, show_details, filter_by_date=False, past_days=14, future_months=2):
     """Merge multiple iCal calendars into one."""
     combined_calendar = icalendar.Calendar()
     combined_calendar.add('prodid', '-//ramhee98//iCalSyncHub//EN')
     combined_calendar.add('version', '2.0')
+
+    # Calculate date range if filtering is enabled
+    start_date = None
+    end_date = None
+    if filter_by_date:
+        now = datetime.now(UTC)
+        start_date = now - timedelta(days=past_days)
+        end_date = now + timedelta(days=future_months * 30)  # Approximate months as 30 days
+        logger.info(f"Filtering events: from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+
+    total_events = 0
+    filtered_events = 0
 
     for url in calendar_urls:
         calendar_data = fetch_calendar(url, retries, delay, timeout)
@@ -216,12 +303,22 @@ def merge_calendars(calendar_urls, retries, delay, timeout, show_details):
                 add_timezones_to_calendar(combined_calendar, timezones)
                 for component in calendar.walk():
                     if component.name == "VEVENT":
+                        total_events += 1
+                        
+                        # Apply date filtering if enabled
+                        if filter_by_date and not should_include_event(component, start_date, end_date):
+                            filtered_events += 1
+                            continue
+                        
                         if not show_details:
                             anonymize_event(component)
                         normalize_event_timezone(component)
                         combined_calendar.add_component(component)
             except ValueError as e:
                 logger.error(f"Error parsing calendar from {url}: {e}")
+
+    if filter_by_date:
+        logger.info(f"Processed {total_events} events, filtered out {filtered_events}, kept {total_events - filtered_events}")
 
     return combined_calendar
 
@@ -258,9 +355,15 @@ def sync_calendars(url_file_path, config, config_path, logger):
     delay = int(config.get('settings', 'delay', fallback=5))
     timeout = int(config.get('settings', 'timeout', fallback=10))
     show_details = config.getboolean('settings', 'show_details', fallback=True)
+    filter_by_date = config.getboolean('settings', 'filter_by_date', fallback=False)
+    past_days = int(config.get('settings', 'past_days', fallback=14))
+    future_months = int(config.get('settings', 'future_months', fallback=2))
 
     logger.info(f"Output file: {os.path.basename(output_path)}")
     logger.info(f"Output directory: {os.path.dirname(output_path)}")
+    
+    if filter_by_date:
+        logger.info(f"Date filtering enabled: past {past_days} days, future {future_months} months")
 
     while True:
         logger.info(f"Starting sync at {datetime.now()}")
@@ -269,7 +372,8 @@ def sync_calendars(url_file_path, config, config_path, logger):
         if not calendar_urls:
             logger.error("No valid calendar URLs found.")
         else:
-            merged_calendar = merge_calendars(calendar_urls, retries, delay, timeout, show_details)
+            merged_calendar = merge_calendars(calendar_urls, retries, delay, timeout, show_details, 
+                                             filter_by_date, past_days, future_months)
             save_calendar(merged_calendar, output_path)
             validate_calendar(output_path)
         logger.info(f"Sync completed in {round(time.time() - start_time, 3)} seconds.")
