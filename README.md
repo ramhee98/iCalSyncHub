@@ -89,7 +89,9 @@ python sync_calendars.py
 
 The program will fetch the specified calendars, merge their events, and save the result as an iCal file at the configured location. It will then periodically sync the calendars based on the specified interval.
 
+
 ### 5. Manage user tokens and sharing (Streamlit app):
+
 
 You can manage user tokens and generate shareable calendar links using the included Streamlit app:
 
@@ -100,15 +102,21 @@ streamlit run streamlit_app.py
 
 By default, the Streamlit app will be available at [http://localhost:8501](http://localhost:8501) (or `http://<your-server-ip>:8501` for remote access). You can change the port with `--server.port <port>` if needed.
 
+
 #### Features of the Streamlit app:
 - Add/remove users, each with a unique token.
 - For each token, a public .ics link is generated (e.g., `https://yourdomain.com/<token>.ics`).
 - The app automatically creates a symlink for each token in the output directory (e.g., `/var/www/html/<token>.ics`), pointing to the merged calendar file. This makes each link immediately accessible and shareable.
+- Tokens can have an optional expiration date/time. Expired tokens are marked in the UI and their symlinks are automatically removed.
 - The original merged calendar file link is also shown for reference.
 
 **Note:**
 - Removing a user/token will also remove the corresponding symlink.
+- When a token expires, its symlink is also automatically removed.
 - All token-based .ics links point to the same merged calendar file unless you implement per-user customization.
+### Automation of Expired Token Cleanup
+
+Symlinks for expired tokens are automatically removed both by the Streamlit app (on UI refresh) and by the sync_calendars.py script (at the start of each sync loop). This ensures your output directory only contains links for active tokens, even if the Streamlit app is not running.
 
 #### Security Considerations:
 - The Streamlit app does not require authentication by default. Anyone with access can manage tokens. Protect access as needed.

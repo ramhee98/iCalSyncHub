@@ -365,7 +365,36 @@ def sync_calendars(url_file_path, config, config_path, logger):
     if filter_by_date:
         logger.info(f"Date filtering enabled: past {past_days} days, future {future_months} months")
 
+    def remove_expired_symlinks():
+        tokens_file = os.path.join(os.path.dirname(__file__), 'user_tokens.txt')
+        if not os.path.exists(tokens_file):
+            return
+        with open(tokens_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split(':', 2)
+                if len(parts) == 2:
+                    username, token = parts
+                    expiration = ''
+                elif len(parts) == 3:
+                    username, token, expiration = parts
+                else:
+                    continue
+                if expiration:
+                    try:
+                        exp_dt = datetime.fromisoformat(expiration)
+                        if datetime.now() > exp_dt:
+                            link_name = os.path.join(os.path.dirname(output_path), f"{token}.ics")
+                            if os.path.islink(link_name) or os.path.exists(link_name):
+                                os.remove(link_name)
+                                logger.info(f"Removed expired token symlink: {link_name}")
+                    except Exception:
+                        continue
+
     while True:
+        remove_expired_symlinks()
         logger.info(f"Starting sync at {datetime.now()}")
         start_time = time.time()
         calendar_urls = load_urls(url_file_path)

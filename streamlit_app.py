@@ -17,33 +17,47 @@ def get_domain():
 def generate_token(length=64):
     return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
 
+from datetime import datetime, timedelta
+
 def load_tokens():
     if not os.path.exists(TOKENS_FILE):
         return []
     with open(TOKENS_FILE, "r") as f:
-        # Each line: username:token
+        # Each line: username:token:expiration (expiration is ISO format or empty for no expiration)
         pairs = []
-        for line in f:
+        raw_lines = f.readlines()
+        for line in raw_lines:
             line = line.strip()
-            if line and ':' in line:
-                username, token = line.split(':', 1)
-                pairs.append((username, token))
+            if not line:
+                continue
+            parts = line.split(":")
+            if len(parts) == 2:
+                username, token = parts
+                expiration = ""
+            elif len(parts) == 3:
+                username, token, expiration = parts
+            else:
+                # If more than 3 parts, join everything after the second as expiration
+                username, token = parts[:2]
+                expiration = ":".join(parts[2:])
+            pairs.append((username, token, expiration))
         return pairs
 
 def save_tokens(pairs):
     with open(TOKENS_FILE, "w") as f:
-        for username, token in pairs:
-            f.write(f"{username}:{token}\n")
+        for username, token, expiration in pairs:
+            f.write(f"{username}:{token}:{expiration}\n")
 
-def add_token(username):
+def add_token(username, expiration=None):
     pairs = load_tokens()
     if not username:
         return False, "Username cannot be empty."
     # Prevent duplicate usernames
-    if any(u == username for u, _ in pairs):
+    if any(u == username for u, _, _ in pairs):
         return False, f"Username '{username}' already exists."
     token = generate_token()
-    pairs.append((username, token))
+    expiration_str = expiration if expiration else ""
+    pairs.append((username, token, expiration_str))
     save_tokens(pairs)
     # Create symlink for the token in output_path
     config = configparser.ConfigParser()
@@ -63,10 +77,27 @@ def add_token(username):
 
 def remove_token(username):
     pairs = load_tokens()
-    new_pairs = [(u, t) for u, t in pairs if u != username]
+    removed_token = None
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+    output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
+    # Find the token to remove
+    for u, t, e in pairs:
+        if u == username:
+            removed_token = t
+            break
+    new_pairs = [(u, t, e) for u, t, e in pairs if u != username]
     if len(new_pairs) == len(pairs):
         return False
     save_tokens(new_pairs)
+    # Remove symlink if it exists
+    if removed_token and output_path:
+        link_name = os.path.join(output_path, f"{removed_token}.ics")
+        try:
+            if os.path.islink(link_name) or os.path.exists(link_name):
+                os.remove(link_name)
+        except Exception:
+            pass
     return True
 
 
@@ -94,25 +125,62 @@ def get_merged_calendar_url():
 if not domain:
     st.warning("Domain is not set in config.ini. Please set the 'domain' value under [settings].")
 
-# Add token
+# Add token with expiration
 with st.form("add_token_form"):
     username = st.text_input("Enter username:")
+    set_exp = st.checkbox("Set expiration date/time")
+    default_date = (datetime.now() + timedelta(days=30)).date()
+    exp_date = st.date_input("Expiration date", value=default_date)
+    exp_time = st.time_input("Expiration time", value=datetime.now().time().replace(second=0, microsecond=0))
+    expiration_str = ""
+    if set_exp:
+        exp_dt = datetime.combine(exp_date, exp_time)
+        expiration_str = exp_dt.isoformat()
     submitted = st.form_submit_button("Add User & Generate Token")
     if submitted:
-        success, result = add_token(username.strip())
+        success, result = add_token(username.strip(), expiration=expiration_str)
         if success:
             st.success(f"Token generated for '{username}': {result}")
+            st.rerun()
         else:
             st.error(result)
 
-# List and remove tokens
+# List and remove tokens, filter out expired
+def is_token_expired(expiration):
+    if not expiration:
+        return False
+    try:
+        exp_dt = datetime.fromisoformat(expiration)
+        return datetime.now() > exp_dt
+    except Exception:
+        return False
+
 pairs = load_tokens()
 if pairs:
     st.write("## Current Users and Shareable Calendar URLs:")
     merged_url = get_merged_calendar_url()
-    for username, token in pairs:
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+    output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
+    for username, token, expiration in pairs:
+        expired = is_token_expired(expiration)
+        # Remove symlink for expired tokens
+        if expired and output_path:
+            link_name = os.path.join(output_path, f"{token}.ics")
+            try:
+                if os.path.islink(link_name) or os.path.exists(link_name):
+                    os.remove(link_name)
+            except Exception:
+                pass
         col1, col2, col3 = st.columns([3,6,1])
-        col1.write(f"**{username}**")
+        if expired:
+            col1.write(f"**{username}** :red[EXPIRED]")
+        else:
+            col1.write(f"**{username}**")
+        if expiration:
+            col1.caption(f"Expires: {expiration}")
+        else:
+            col1.caption("No expiration")
         if domain:
             url = f"{domain}/{token}.ics"
             col2.code(url)
