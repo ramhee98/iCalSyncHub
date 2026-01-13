@@ -12,17 +12,35 @@ iCalSyncHub is a lightweight Python program that synchronizes multiple online iC
 
 ## Installation
 
-### Prerequisites
+
+### Quick Installation
+
+Run the provided installer script to set up a Python virtual environment and install all dependencies (including Streamlit):
+
+```bash
+bash install.sh
+```
+
+This will create a `venv` directory and install all required packages. To activate the environment later, use:
+
+```bash
+source venv/bin/activate
+```
+
+---
+
+#### Manual Prerequisites (if not using install.sh)
 - Python 3.6 or higher
 - Required Python libraries:
   - `requests`
   - `icalendar`
   - `pytz`
+  - `streamlit`
 
-Install the dependencies using pip:
+Install the dependencies manually using pip if needed:
 
 ```bash
-pip install requests icalendar pytz
+pip install requests icalendar pytz streamlit
 ```
 
 
