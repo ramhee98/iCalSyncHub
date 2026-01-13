@@ -104,7 +104,7 @@ def remove_token(username):
 st.set_page_config(
     page_title="iCalSyncHub Token Management",
     page_icon="📅",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="auto",
 )
 st.title("iCalSyncHub Token Management")
