@@ -200,8 +200,6 @@ if pairs:
         if domain:
             url = f"{domain}/{token}.ics"
             col2.code(url)
-            if merged_url:
-                col2.markdown(f"[Original merged calendar file]({merged_url})")
         else:
             col2.code(token)
         if col3.button(f"Remove", key=f"remove_{username}"):
