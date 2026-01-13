@@ -174,7 +174,7 @@ if pairs:
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
-    for username, token, expiration in pairs:
+    for idx, (username, token, expiration) in enumerate(pairs):
         status = token_expiry_status(expiration)
         # Remove symlink for expired tokens
         if status == 'expired' and output_path:
@@ -209,5 +209,8 @@ if pairs:
             if removed:
                 st.warning(f"User '{username}' removed.")
                 st.rerun()
+        # Add a visual separator between entries, except after the last one
+        if idx < len(pairs) - 1:
+            st.divider()
 else:
     st.info("No users/tokens found.")
