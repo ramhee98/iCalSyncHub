@@ -3,6 +3,35 @@ import os
 import random
 import string
 import configparser
+import logging
+from logging.handlers import RotatingFileHandler
+def get_logger():
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+    log_level = config.get('settings', 'log_level', fallback='INFO').upper()
+    log_output = config.get('settings', 'log_output', fallback='both').lower()
+    log_file = config.get('settings', 'log_file', fallback='icalsynchub.log')
+    max_log_file_size = int(config.get('settings', 'max_log_file_size', fallback=10)) * 1024 * 1024
+    log_backup_count = int(config.get('settings', 'log_backup_count', fallback=5))
+    logger = logging.getLogger('icalsynchub.tokens')
+    logger.setLevel(getattr(logging, log_level))
+    # Avoid duplicate handlers
+    if not logger.handlers:
+        handlers = []
+        if log_output in ('file', 'both') and log_file:
+            file_handler = RotatingFileHandler(log_file, maxBytes=max_log_file_size, backupCount=log_backup_count)
+            file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            file_handler.setFormatter(file_formatter)
+            handlers.append(file_handler)
+        if log_output in ('console', 'both'):
+            console_handler = logging.StreamHandler()
+            console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            console_handler.setFormatter(console_formatter)
+            handlers.append(console_handler)
+        for handler in handlers:
+            logger.addHandler(handler)
+    logger.propagate = False
+    return logger
 
 TOKENS_FILE = "user_tokens.txt"
 CONFIG_FILE = "config.ini"
@@ -51,16 +80,21 @@ def save_tokens(pairs):
 # Move update_token_expiry to top level
 def update_token_expiry(username, new_expiry):
     pairs = load_tokens()
+    logger = get_logger()
     updated = False
     token = None
+    old_expiry = None
     for i, (u, t, e) in enumerate(pairs):
         if u == username:
+            old_expiry = e
             pairs[i] = (u, t, new_expiry)
             token = t
             updated = True
             break
     if updated:
         save_tokens(pairs)
+        # Log the change
+        logger.info(f"Token expiry changed for user '{username}' (token: {token}) from '{old_expiry or 'never'}' to '{new_expiry or 'never'}'")
         # If new_expiry is in the future, recreate symlink if missing
         try:
             config = configparser.ConfigParser()
@@ -89,6 +123,7 @@ def update_token_expiry(username, new_expiry):
 
 def add_token(username, expiration=None):
     pairs = load_tokens()
+    logger = get_logger()
     if not username:
         return False, "Username cannot be empty."
     # Prevent duplicate usernames
@@ -111,11 +146,14 @@ def add_token(username, expiration=None):
                 os.remove(link_name)
             os.symlink(target, link_name)
         except Exception as e:
+            logger.error(f"Token created for '{username}' but failed to create symlink: {e}")
             return False, f"Token created, but failed to create symlink: {e}"
+    logger.info(f"Token created for user '{username}' (token: {token}, expires: {expiration_str or 'never'})")
     return True, token
 
 def remove_token(username):
     pairs = load_tokens()
+    logger = get_logger()
     removed_token = None
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -137,6 +175,7 @@ def remove_token(username):
                 os.remove(link_name)
         except Exception:
             pass
+    logger.info(f"Token deleted for user '{username}' (token: {removed_token})")
     return True
 
 

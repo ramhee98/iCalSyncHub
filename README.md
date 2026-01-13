@@ -119,6 +119,7 @@ By default, the Streamlit app will be available at [http://localhost:8501](http:
 - Tokens can have an optional expiration date/time. Expired tokens are marked in the UI and their symlinks are automatically removed.
 - You can edit, add, or remove the expiry date for any token directly in the Streamlit app UI. When an expiry is set or changed to a future date, or removed (no expiry), the symlink is automatically recreated if it was previously removed due to expiry.
 - The UI displays the expiry status for each token (e.g., EXPIRED, EXPIRES TODAY, EXPIRES SOON, or active).
+- All token creation, deletion, and expiry changes are logged to the main log file, including username, token, and expiry details.
 
 **Note:**
 - All token-based .ics links point to the same merged calendar file unless you implement per-user customization.
