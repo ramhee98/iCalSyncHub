@@ -1,6 +1,6 @@
 # iCalSyncHub
 
-iCalSyncHub is a lightweight Python program that synchronizes multiple online iCal calendars into a single merged calendar. The merged calendar is then shared as an iCal file, which can be hosted on a web server or used locally. Designed for simplicity and automation, it periodically updates the merged calendar based on a configurable sync interval.
+iCalSyncHub is a lightweight Python tool with a Streamlit web interface that merges multiple online iCal calendars into a single .ics file, which can be hosted on a web server. Users (tokens) can be added, managed, and expired through the web UI. Designed for simplicity and automation, it periodically updates the merged calendar at a configurable interval.
 
 ## Features
 - **Multi-Calendar Support**: Combine events from two or more iCal calendars into one.
