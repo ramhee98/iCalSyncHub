@@ -70,6 +70,8 @@ source venv/bin/activate  # if using a virtual environment
 streamlit run streamlit_app.py
 ```
 
+By default, the Streamlit app will be available at [http://localhost:8501](http://localhost:8501) (or `http://<your-server-ip>:8501` for remote access). You can change the port with `--server.port <port>` if needed.
+
 #### Features of the Streamlit app:
 - Add/remove users, each with a unique token.
 - For each token, a public .ics link is generated (e.g., `https://yourdomain.com/<token>.ics`).
