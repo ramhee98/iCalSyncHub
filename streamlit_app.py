@@ -69,7 +69,14 @@ def remove_token(username):
     save_tokens(new_pairs)
     return True
 
-st.title("User Token Management for iCalSyncHub")
+
+st.set_page_config(
+    page_title="iCalSyncHub Token Management",
+    page_icon="📅",
+    layout="centered",
+    initial_sidebar_state="auto",
+)
+st.title("iCalSyncHub Token Management")
 st.write("Add or remove user tokens to control calendar sharing. Each token is associated with a username.")
 
 domain = get_domain()
