@@ -46,6 +46,16 @@ pip install requests icalendar pytz streamlit
 
 ## Usage
 
+### Run Streamlit App on Boot (Optional)
+
+To automatically start the Streamlit app at system boot, you can add a line to your crontab using the @reboot directive. For example, as root:
+
+```bash
+@reboot cd /root/iCalSyncHub && /root/iCalSyncHub/venv/bin/streamlit run streamlit_app.py --server.headless=true >> /root/iCalSyncHub/streamlit.log 2>&1
+```
+
+This will launch the Streamlit app in headless mode and log output to streamlit.log after every reboot. Make sure the virtual environment and dependencies are installed as root if you use this path.
+
 ### 1. Clone the repository:
 
 ```bash
