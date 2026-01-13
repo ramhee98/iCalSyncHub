@@ -48,6 +48,45 @@ def save_tokens(pairs):
         for username, token, expiration in pairs:
             f.write(f"{username}:{token}:{expiration}\n")
 
+# Move update_token_expiry to top level
+def update_token_expiry(username, new_expiry):
+    pairs = load_tokens()
+    updated = False
+    token = None
+    for i, (u, t, e) in enumerate(pairs):
+        if u == username:
+            pairs[i] = (u, t, new_expiry)
+            token = t
+            updated = True
+            break
+    if updated:
+        save_tokens(pairs)
+        # If new_expiry is in the future, recreate symlink if missing
+        try:
+            config = configparser.ConfigParser()
+            config.read(CONFIG_FILE)
+            output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
+            filename = config.get('settings', 'filename', fallback='').lstrip('/')
+            if output_path and filename and token:
+                target = os.path.join(output_path, filename)
+                link_name = os.path.join(output_path, f"{token}.ics")
+                recreate = False
+                if not new_expiry:
+                    # No expiry, always recreate
+                    recreate = True
+                else:
+                    try:
+                        exp_dt = datetime.fromisoformat(new_expiry)
+                        if exp_dt > datetime.now():
+                            recreate = True
+                    except Exception:
+                        pass
+                if recreate and not os.path.islink(link_name) and not os.path.exists(link_name):
+                    os.symlink(target, link_name)
+        except Exception:
+            pass
+    return updated
+
 def add_token(username, expiration=None):
     pairs = load_tokens()
     if not username:
@@ -184,7 +223,7 @@ if pairs:
                     os.remove(link_name)
             except Exception:
                 pass
-        col1, col2, col3 = st.columns([3,6,1])
+        col1, col2, col3 = st.columns([3,6,2])
         if status == 'expired':
             col1.write(f"**{username}** :red[EXPIRED]")
         elif status == 'today':
@@ -197,6 +236,41 @@ if pairs:
             col1.caption(f"Expires: {expiration}")
         else:
             col1.caption("No expiration")
+
+        # Expiry date/time management UI
+        with col3:
+            edit_exp = st.expander("Edit Expiry", expanded=False)
+            with edit_exp:
+                # Show current expiry or allow to set
+                if expiration:
+                    try:
+                        exp_dt = datetime.fromisoformat(expiration)
+                        exp_date = exp_dt.date()
+                        exp_time = exp_dt.time().replace(second=0, microsecond=0)
+                    except Exception:
+                        exp_date = datetime.now().date()
+                        exp_time = datetime.now().time().replace(second=0, microsecond=0)
+                else:
+                    exp_date = datetime.now().date()
+                    exp_time = datetime.now().time().replace(second=0, microsecond=0)
+                new_date = st.date_input(f"Date for {username}", value=exp_date, key=f"date_{username}")
+                new_time = st.time_input(f"Time for {username}", value=exp_time, key=f"time_{username}")
+                if st.button("Update Expiry", key=f"update_expiry_{username}"):
+                    new_expiry = datetime.combine(new_date, new_time).isoformat()
+                    if update_token_expiry(username, new_expiry):
+                        st.success("Expiry updated.")
+                        # Recalculate status after update
+                        st.rerun()
+                    else:
+                        st.error("Failed to update expiry.")
+                if expiration:
+                    if st.button("Remove Expiry", key=f"remove_expiry_{username}"):
+                        if update_token_expiry(username, ""):
+                            st.success("Expiry removed.")
+                            # Recalculate status after removal
+                            st.rerun()
+                        else:
+                            st.error("Failed to remove expiry.")
         if domain:
             url = f"{domain}/{token}.ics"
             col2.code(url)

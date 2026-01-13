@@ -117,7 +117,8 @@ By default, the Streamlit app will be available at [http://localhost:8501](http:
 - For each token, a public .ics link is generated (e.g., `https://yourdomain.com/<token>.ics`).
 - The app automatically creates a symlink for each token in the output directory (e.g., `/var/www/html/<token>.ics`), pointing to the merged calendar file. This makes each link immediately accessible and shareable.
 - Tokens can have an optional expiration date/time. Expired tokens are marked in the UI and their symlinks are automatically removed.
-- The original merged calendar file link is also shown for reference.
+- You can edit, add, or remove the expiry date for any token directly in the Streamlit app UI. When an expiry is set or changed to a future date, or removed (no expiry), the symlink is automatically recreated if it was previously removed due to expiry.
+- The UI displays the expiry status for each token (e.g., EXPIRED, EXPIRES TODAY, EXPIRES SOON, or active).
 
 **Note:**
 - All token-based .ics links point to the same merged calendar file unless you implement per-user customization.
