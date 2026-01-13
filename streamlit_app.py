@@ -146,14 +146,26 @@ with st.form("add_token_form"):
             st.error(result)
 
 # List and remove tokens, filter out expired
-def is_token_expired(expiration):
+
+def token_expiry_status(expiration):
+    """
+    Returns: 'expired', 'today', 'week', or 'active'
+    """
     if not expiration:
-        return False
+        return 'active'
     try:
         exp_dt = datetime.fromisoformat(expiration)
-        return datetime.now() > exp_dt
+        now = datetime.now()
+        if now > exp_dt:
+            return 'expired'
+        elif exp_dt.date() == now.date():
+            return 'today'
+        elif 0 < (exp_dt.date() - now.date()).days <= 7:
+            return 'week'
+        else:
+            return 'active'
     except Exception:
-        return False
+        return 'active'
 
 pairs = load_tokens()
 if pairs:
@@ -163,9 +175,9 @@ if pairs:
     config.read(CONFIG_FILE)
     output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
     for username, token, expiration in pairs:
-        expired = is_token_expired(expiration)
+        status = token_expiry_status(expiration)
         # Remove symlink for expired tokens
-        if expired and output_path:
+        if status == 'expired' and output_path:
             link_name = os.path.join(output_path, f"{token}.ics")
             try:
                 if os.path.islink(link_name) or os.path.exists(link_name):
@@ -173,8 +185,12 @@ if pairs:
             except Exception:
                 pass
         col1, col2, col3 = st.columns([3,6,1])
-        if expired:
+        if status == 'expired':
             col1.write(f"**{username}** :red[EXPIRED]")
+        elif status == 'today':
+            col1.write(f"**{username}** :orange[EXPIRES TODAY]")
+        elif status == 'week':
+            col1.write(f"**{username}** :yellow[EXPIRES SOON]")
         else:
             col1.write(f"**{username}**")
         if expiration:

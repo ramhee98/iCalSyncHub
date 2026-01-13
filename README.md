@@ -9,6 +9,15 @@ iCalSyncHub is a lightweight Python program that synchronizes multiple online iC
 - **Custom Configuration**: Use a simple `.ini` file to configure calendar URLs, output location, and sync frequency.
 - **Portable Output**: Generates a standard `.ics` file compatible with popular calendar apps like Google Calendar, Outlook, and Apple Calendar.
 - **Error Handling**: Resilient to network errors or invalid calendar formats.
+- **Token Removal**: Tokens and their symlinks can be removed manually at any time, or automatically when a token expires.
+## Token Removal
+
+Tokens and their associated symlinks can be removed in two ways:
+
+- **Manual Removal**: You can remove a user/token at any time using the Streamlit app UI. This will also remove the corresponding symlink from the output directory.
+- **Automatic Removal on Expiry**: When a token expires, its symlink is automatically removed by both the Streamlit app (on UI refresh) and the sync_calendars.py script (at the start of each sync loop).
+
+This ensures your output directory only contains links for active tokens.
 
 ## Installation
 
@@ -111,8 +120,6 @@ By default, the Streamlit app will be available at [http://localhost:8501](http:
 - The original merged calendar file link is also shown for reference.
 
 **Note:**
-- Removing a user/token will also remove the corresponding symlink.
-- When a token expires, its symlink is also automatically removed.
 - All token-based .ics links point to the same merged calendar file unless you implement per-user customization.
 ### Automation of Expired Token Cleanup
 
