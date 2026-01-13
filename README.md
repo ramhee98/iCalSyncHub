@@ -25,36 +25,66 @@ Install the dependencies using pip:
 pip install requests icalendar pytz
 ```
 
+
 ## Usage
 
-1. Clone the repository:
+### 1. Clone the repository:
 
 ```bash
 git clone https://github.com/ramhee98/iCalSyncHub.git
 cd iCalSyncHub
 ```
 
-2. Copy the config_template.ini file and customize it according to your requirements:
+### 2. Configure the app:
+
+Copy the config template and edit as needed:
 
 ```bash
 cp config_template.ini config.ini
 nano config.ini
 ```
 
-3. Create a calendar_urls.txt file in the project directory, listing the calendar URLs to sync:
+### 3. Add calendar URLs:
+
+Create a `calendar_urls.txt` file in the project directory, listing the calendar URLs to sync:
 
 ```bash
 https://example.com/calendar1.ics
 https://example.com/calendar2.ics
 ```
 
-4. Run the program:
+### 4. Run the calendar sync:
 
 ```bash
 python sync_calendars.py
 ```
 
 The program will fetch the specified calendars, merge their events, and save the result as an iCal file at the configured location. It will then periodically sync the calendars based on the specified interval.
+
+### 5. Manage user tokens and sharing (Streamlit app):
+
+You can manage user tokens and generate shareable calendar links using the included Streamlit app:
+
+```bash
+source venv/bin/activate  # if using a virtual environment
+streamlit run streamlit_app.py
+```
+
+#### Features of the Streamlit app:
+- Add/remove users, each with a unique token.
+- For each token, a public .ics link is generated (e.g., `https://yourdomain.com/<token>.ics`).
+- The app automatically creates a symlink for each token in the output directory (e.g., `/var/www/html/<token>.ics`), pointing to the merged calendar file. This makes each link immediately accessible and shareable.
+- The original merged calendar file link is also shown for reference.
+
+**Note:**
+- Removing a user/token will also remove the corresponding symlink.
+- All token-based .ics links point to the same merged calendar file unless you implement per-user customization.
+
+#### Security Considerations:
+- The Streamlit app does not require authentication by default. Anyone with access can manage tokens. Protect access as needed.
+- Tokens do not expire automatically. Remove tokens to revoke access.
+
+---
 
 ### Configuration Options
 
