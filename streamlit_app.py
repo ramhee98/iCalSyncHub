@@ -168,7 +168,20 @@ if not domain:
 with st.form("add_token_form"):
     username = st.text_input("Enter username:")
     set_exp = st.checkbox("Set expiration date/time")
-    default_date = (datetime.now() + timedelta(days=30)).date()
+    # Set default expiration date to the same day next month
+    today = datetime.now().date()
+    if today.month == 12:
+        next_month = today.replace(year=today.year+1, month=1)
+    else:
+        # Handle months with fewer days
+        try:
+            next_month = today.replace(month=today.month+1)
+        except ValueError:
+            # If next month doesn't have this day, use the last day of next month
+            from calendar import monthrange
+            last_day = monthrange(today.year + (today.month // 12), ((today.month % 12) + 1))[1]
+            next_month = today.replace(month=((today.month % 12) + 1), day=last_day)
+    default_date = next_month
     exp_date = st.date_input("Expiration date", value=default_date)
     exp_time = st.time_input("Expiration time", value=datetime.now().time().replace(second=0, microsecond=0))
     expiration_str = ""
