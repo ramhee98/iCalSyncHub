@@ -130,6 +130,38 @@ def update_token_expiry(username, new_expiry):
             pass
     return updated
 
+def ensure_token_links(token):
+    """Ensure the .ics symlink and the per-token .html viewer exist.
+    Returns (success: bool, message: str)
+    """
+    logger = get_logger()
+    config = configparser.ConfigParser()
+    config.read(CONFIG_FILE)
+    output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
+    filename = config.get('settings', 'filename', fallback='').lstrip('/')
+    if not output_path or not filename:
+        return False, 'output_path or filename not configured in config.ini'
+    target = os.path.join(output_path, filename)
+    link_name = os.path.join(output_path, f"{token}.ics")
+    html_dest = os.path.join(output_path, f"{token}.html")
+    try:
+        # create or replace symlink
+        if os.path.islink(link_name) or os.path.exists(link_name):
+            os.remove(link_name)
+        os.symlink(target, link_name)
+        # copy template (non-fatal)
+        try:
+            template = os.path.join(os.path.dirname(__file__), 'viewer_template.html')
+            if os.path.exists(template):
+                shutil.copyfile(template, html_dest)
+        except Exception as e:
+            logger.warning(f"Failed to copy viewer template for token '{token}': {e}")
+        return True, 'Links ensured'
+    except Exception as e:
+        logger.error(f"Failed to ensure links for token '{token}': {e}")
+        return False, str(e)
+
+
 def add_token(username, expiration=None):
     pairs = load_tokens()
     logger = get_logger()
@@ -353,6 +385,13 @@ if pairs:
             col2.markdown(f"[View online]({html_url})")
         else:
             col2.code(token)
+        if col3.button(f"Ensure Links", key=f"ensure_{username}"):
+            ok, msg = ensure_token_links(token)
+            if ok:
+                st.success("Links ensured.")
+                st.rerun()
+            else:
+                st.error(f"Failed to ensure links: {msg}")
         if col3.button(f"Remove", key=f"remove_{username}"):
             removed = remove_token(username)
             if removed:
