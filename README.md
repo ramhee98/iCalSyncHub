@@ -30,10 +30,10 @@ Run the provided installer script to set up a Python virtual environment and ins
 bash install.sh
 ```
 
-This will create a `venv` directory and install all required packages. To activate the environment later, use:
+This will create a `.venv` directory and install all required packages. To activate the environment later, use:
 
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 ```
 
 ---
@@ -60,7 +60,7 @@ pip install requests icalendar pytz streamlit
 To automatically start the Streamlit app at system boot, you can add a line to your crontab using the @reboot directive. For example, as root:
 
 ```bash
-@reboot cd /root/iCalSyncHub && /root/iCalSyncHub/venv/bin/streamlit run streamlit_app.py --server.headless=true >> /root/iCalSyncHub/streamlit.log 2>&1
+@reboot cd /root/iCalSyncHub && /root/iCalSyncHub/.venv/bin/streamlit run streamlit_app.py --server.headless=true >> /root/iCalSyncHub/streamlit.log 2>&1
 ```
 
 This will launch the Streamlit app in headless mode and log output to streamlit.log after every reboot. Make sure the virtual environment and dependencies are installed as root if you use this path.
@@ -105,7 +105,7 @@ The program will fetch the specified calendars, merge their events, and save the
 You can manage user tokens and generate shareable calendar links using the included Streamlit app:
 
 ```bash
-source venv/bin/activate  # if using a virtual environment
+source .venv/bin/activate  # if using a virtual environment
 streamlit run streamlit_app.py
 ```
 

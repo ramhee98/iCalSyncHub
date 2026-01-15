@@ -5,7 +5,7 @@ config.ini
 user_tokens.txt
 
 # Ignore virtual environment folder
-venv/
+.venv/
 
 # Ignore other common Python-related files and folders
 __pycache__/
