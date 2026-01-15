@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>iCalSyncHub - Calendar Viewer</title>
-  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css" rel="stylesheet" />
   <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
     #top { padding: 1rem; background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
@@ -18,12 +18,27 @@
   </div>
   <div id="calendar"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/main.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/ical.js@1.4.0/build/ical.min.js"></script>
   <script>
     // Determine token/filename from the current path (e.g., /<token>.html)
     (async function(){
       try {
+        // Ensure FullCalendar is loaded (fallback to CDN loader if blocked)
+        async function ensureScript(url){
+          return new Promise((resolve,reject)=>{
+            const s = document.createElement('script');
+            s.src = url;
+            s.onload = () => resolve();
+            s.onerror = () => reject(new Error('Failed to load ' + url));
+            document.head.appendChild(s);
+          });
+        }
+        if (typeof FullCalendar === 'undefined'){
+          // try loading a compatible UMD build
+          await ensureScript('https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js');
+          if (typeof FullCalendar === 'undefined') throw new Error('FullCalendar is not available after fallback load.');
+        }
         const path = window.location.pathname;
         const token = path.split('/').pop().replace('.html','');
         const icsUrl = `${token}.ics`;
