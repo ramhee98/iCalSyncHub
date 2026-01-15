@@ -121,8 +121,8 @@ By default, the Streamlit app will be available at [http://localhost:8501](http:
 #### Features of the Streamlit app:
 - Add/remove users, each with a unique token.
 - For each token, a public .ics link is generated (e.g., `https://yourdomain.com/<token>.ics`).
-- The app automatically creates a symlink for each token in the output directory (e.g., `/var/www/html/<token>.ics`), pointing to the merged calendar file. This makes each link immediately accessible and shareable.
-- Tokens can have an optional expiration date/time. Expired tokens are marked in the UI and their symlinks are automatically removed.
+- The app automatically creates a symlink for each token in the output directory (e.g., `/var/www/html/<token>.ics`), pointing to the merged calendar file. This makes each link immediately accessible and shareable. Additionally, a static HTML viewer is created as `/var/www/html/<token>.html` so users can view the calendar online without importing the ICS.
+- Tokens can have an optional expiration date/time. Expired tokens are marked in the UI and their symlinks and viewer pages are automatically removed.
 - You can edit, add, or remove the expiry date for any token directly in the Streamlit app UI. When an expiry is set or changed to a future date, or removed (no expiry), the symlink is automatically recreated if it was previously removed due to expiry.
 - The UI displays the expiry status for each token (e.g., EXPIRED, EXPIRES TODAY, EXPIRES SOON, or active).
 - All token creation, deletion, and expiry changes are logged to the main log file, including username, token, and expiry details.

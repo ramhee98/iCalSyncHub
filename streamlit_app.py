@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import shutil
 import random
 import string
 import configparser
@@ -117,6 +118,14 @@ def update_token_expiry(username, new_expiry):
                         pass
                 if recreate and not os.path.islink(link_name) and not os.path.exists(link_name):
                     os.symlink(target, link_name)
+                    # Create viewer html next to the .ics if template exists
+                    try:
+                        template = os.path.join(os.path.dirname(__file__), 'viewer_template.html')
+                        html_dest = os.path.join(output_path, f"{token}.html")
+                        if os.path.exists(template):
+                            shutil.copyfile(template, html_dest)
+                    except Exception:
+                        pass
         except Exception:
             pass
     return updated
@@ -141,10 +150,18 @@ def add_token(username, expiration=None):
     if output_path and filename:
         target = os.path.join(output_path, filename)
         link_name = os.path.join(output_path, f"{token}.ics")
+        html_dest = os.path.join(output_path, f"{token}.html")
         try:
             if os.path.islink(link_name) or os.path.exists(link_name):
                 os.remove(link_name)
             os.symlink(target, link_name)
+            # Copy viewer template to per-token html if available (non-fatal)
+            try:
+                template = os.path.join(os.path.dirname(__file__), 'viewer_template.html')
+                if os.path.exists(template):
+                    shutil.copyfile(template, html_dest)
+            except Exception as e:
+                logger.warning(f"Viewer template not copied for token '{token}': {e}")
         except Exception as e:
             logger.error(f"Token created for '{username}' but failed to create symlink: {e}")
             return False, f"Token created, but failed to create symlink: {e}"
@@ -170,9 +187,12 @@ def remove_token(username):
     # Remove symlink if it exists
     if removed_token and output_path:
         link_name = os.path.join(output_path, f"{removed_token}.ics")
+        html_name = os.path.join(output_path, f"{removed_token}.html")
         try:
             if os.path.islink(link_name) or os.path.exists(link_name):
                 os.remove(link_name)
+            if os.path.islink(html_name) or os.path.exists(html_name):
+                os.remove(html_name)
         except Exception:
             pass
     logger.info(f"Token deleted for user '{username}' (token: {removed_token})")
@@ -270,9 +290,12 @@ if pairs:
         # Remove symlink for expired tokens
         if status == 'expired' and output_path:
             link_name = os.path.join(output_path, f"{token}.ics")
+            html_name = os.path.join(output_path, f"{token}.html")
             try:
                 if os.path.islink(link_name) or os.path.exists(link_name):
                     os.remove(link_name)
+                if os.path.islink(html_name) or os.path.exists(html_name):
+                    os.remove(html_name)
             except Exception:
                 pass
         col1, col2, col3 = st.columns([3,6,2])
@@ -324,8 +347,10 @@ if pairs:
                         else:
                             st.error("Failed to remove expiry.")
         if domain:
-            url = f"{domain}/{token}.ics"
-            col2.code(url)
+            ics_url = f"{domain}/{token}.ics"
+            html_url = f"{domain}/{token}.html"
+            col2.code(ics_url)
+            col2.markdown(f"[View online]({html_url})")
         else:
             col2.code(token)
         if col3.button(f"Remove", key=f"remove_{username}"):
