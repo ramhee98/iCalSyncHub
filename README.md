@@ -74,10 +74,16 @@ cd iCalSyncHub
 
 ### 2. Configure the app:
 
-Copy the config template and edit as needed:
+If you used the installer, it creates a config file automatically:
+install.sh will copy config_template.ini -> config.ini if config.ini is missing.
+It will not overwrite an existing config.ini and will warn if the template is missing.
 
+Or, to copy manually:
 ```bash
 cp config_template.ini config.ini
+```
+
+```bash
 nano config.ini
 ```
 
