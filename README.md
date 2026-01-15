@@ -96,6 +96,28 @@ https://example.com/calendar1.ics
 https://example.com/calendar2.ics
 ```
 
+Custom anonymized summary per-URL
+
+You can specify a custom summary to use when events are anonymized (when `show_details` is `false`) by adding a `#` followed immediately by the summary text to the URL line. Examples:
+
+```bash
+# URL with a custom summary (URL-encoded or plain text accepted)
+https://example.com/calendar1.ics#Out%20of%20Office
+
+# Space before '#' is allowed
+https://example.com/calendar2.ics #Tenative
+
+# No value provided -> defaults to "Busy"
+https://example.com/calendar3.ics#
+```
+
+Notes:
+
+- If the fragment is empty (i.e., `#` with no text), the default summary `Busy` is used.
+- Spaces may be included directly or URL-encoded; the value will be URL-decoded before use.
+- The fragment is removed for fetching the calendar.
+- The per-URL custom summary is only applied when `show_details = false` (anonymized output).
+
 ### 4. Run the calendar sync:
 
 ```bash

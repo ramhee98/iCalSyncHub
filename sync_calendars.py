@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from urllib.parse import urlparse, urlunparse, quote, unquote
 import random
 import string
-from pytz import UTC, all_timezones
+from pytz import UTC, all_timezones, timezone
 
 
 def setup_logging(config):
@@ -122,10 +122,34 @@ def resolve_output_filename(config, config_path):
 
 
 def load_urls(file_path):
-    """Load valid calendar URLs from a file."""
+    """Load valid calendar URLs and optional per-URL custom summaries from a file."""
+    entries = []
     try:
         with open(file_path, 'r') as f:
-            return [line.strip() for line in f if line.strip() and not line.startswith('#')]
+            for line in f:
+                line = line.rstrip('\n')
+                if not line or line.strip().startswith('#'):
+                    continue
+
+                custom_summary = None
+                url = line
+
+                # If there's a fragment (allow optional space before '#'), treat the fragment as the custom summary
+                if '#' in line:
+                    base_url, fragment = line.split('#', 1)
+                    base_url = base_url.strip()
+                    fragment = fragment.strip()
+
+                    # Treat whole fragment as the custom summary; empty fragment -> default 'Busy'
+                    custom_summary = unquote(fragment) if fragment else 'Busy'
+
+                    # Use the base URL (without the fragment) for fetching
+                    url = base_url
+
+                if custom_summary:
+                    logger.debug(f"Loaded URL '{url}' with custom summary: '{custom_summary}'")
+                entries.append((url, custom_summary))
+        return entries
     except FileNotFoundError:
         logger.critical(f"URL file '{file_path}' not found.")
         logger.critical("Sync aborted, exiting!")
@@ -187,17 +211,17 @@ def add_timezones_to_calendar(target_calendar, timezones):
         target_calendar.add_component(timezone)
 
 
-def anonymize_event(event):
-    """Anonymize event details to show only availability."""
-    event['SUMMARY'] = "Busy"  # Replace with generic text
-    if 'DESCRIPTION' in event:
-        del event['DESCRIPTION']  # Remove description
-    if 'LOCATION' in event:
-        del event['LOCATION']  # Remove location
-    if 'ATTENDEE' in event:
-        del event['ATTENDEE']  # Remove attendee details
-    if 'ORGANIZER' in event:
-        del event['ORGANIZER']  # Remove organizer details
+def anonymize_event(event, summary="Busy"):
+    """Anonymize event details to show only availability.
+
+    Args:
+        event: The VEVENT to anonymize
+        summary: The text to use for the SUMMARY property when anonymized
+    """
+    event['SUMMARY'] = summary  # Replace with generic or custom text
+    for prop in ('DESCRIPTION', 'LOCATION', 'ATTENDEE', 'ORGANIZER'):
+        if prop in event:
+            del event[prop]  # Remove sensitive details
 
 
 def get_event_date(event):
@@ -276,8 +300,12 @@ def should_include_event(event, start_date, end_date):
 
 
 @measure_time(log_level='DEBUG')
-def merge_calendars(calendar_urls, retries, delay, timeout, show_details, filter_by_date=False, past_days=14, future_months=2):
-    """Merge multiple iCal calendars into one."""
+def merge_calendars(calendar_entries, retries, delay, timeout, show_details, filter_by_date=False, past_days=14, future_months=2):
+    """Merge multiple iCal calendars into one.
+
+    Args:
+        calendar_entries: Iterable of (url, custom_summary) tuples where custom_summary may be None.
+    """
     combined_calendar = icalendar.Calendar()
     combined_calendar.add('prodid', '-//ramhee98//iCalSyncHub//EN')
     combined_calendar.add('version', '2.0')
@@ -294,7 +322,7 @@ def merge_calendars(calendar_urls, retries, delay, timeout, show_details, filter
     total_events = 0
     filtered_events = 0
 
-    for url in calendar_urls:
+    for url, custom_summary in calendar_entries:
         calendar_data = fetch_calendar(url, retries, delay, timeout)
         if calendar_data:
             try:
@@ -311,7 +339,8 @@ def merge_calendars(calendar_urls, retries, delay, timeout, show_details, filter
                             continue
                         
                         if not show_details:
-                            anonymize_event(component)
+                            # Use custom summary if provided, otherwise default to 'Busy'
+                            anonymize_event(component, custom_summary or 'Busy')
                         normalize_event_timezone(component)
                         combined_calendar.add_component(component)
             except ValueError as e:
