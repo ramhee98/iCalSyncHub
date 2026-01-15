@@ -109,6 +109,38 @@
           firstDay: 1, // Monday as first day of week
           height: '100%',
           headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' },
+          // Header formatting per view:
+          dayHeaderContent: function(arg) {
+            try {
+              const viewType = (arg.view && arg.view.type) ? arg.view.type.toLowerCase() : '';
+              const date = arg.date;
+
+              // Month view: short weekday name with first letter capitalized (e.g., 'Sun', 'Mon')
+              if (viewType.indexOf('month') !== -1) {
+                const short = date.toLocaleDateString(undefined, { weekday: 'short' });
+                return { html: String(short).charAt(0).toUpperCase() + String(short).slice(1).toLowerCase() };
+              }
+
+              // Week view: short weekday name with first letter capitalized (e.g., 'Sun', 'Mon') and day number (e.g., 'Monday 25')
+              if (viewType.indexOf('week') !== -1) {
+                const weekday = date.toLocaleDateString(undefined, { weekday: 'short' });
+                const d = date.getDate();
+                return { html: `${weekday.charAt(0).toUpperCase() + weekday.slice(1).toLowerCase()} ${d}` };
+              }
+
+              // Day view: full weekday name only (e.g., 'Monday')
+              if (viewType.indexOf('day') !== -1) {
+                const weekday = date.toLocaleDateString(undefined, { weekday: 'long' });
+                return { html: weekday };
+              }
+
+              // Fallback: short weekday
+              const fallback = date.toLocaleDateString(undefined, { weekday: 'short' });
+              return { html: fallback };
+            } catch (e) {
+              return { html: '' };
+            }
+          },
           events: vevents,
           eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false }
         });
