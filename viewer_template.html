@@ -106,6 +106,7 @@
 
         const calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
           initialView: 'dayGridMonth',
+          firstDay: 1, // Monday as first day of week
           height: '100%',
           headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' },
           events: vevents,
