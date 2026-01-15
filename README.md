@@ -118,6 +118,26 @@ Notes:
 - The fragment is removed for fetching the calendar.
 - The per-URL custom summary is only applied when `show_details = false` (anonymized output).
 
+Custom event coloring in viewer
+
+You can define event colors for the HTML viewer in two ways:
+
+- Per-summary mapping in `config.ini` under `[colors]`. Keys should match the original event SUMMARY text (or the summary itself when details are shown) and map to a hex color (e.g., `Meeting = #06b6d4`). The viewer is injected with this mapping and uses it first.
+- Per-event property in the ICS: set `X-COLOR` or `COLOR` on a VEVENT to specify its color. The viewer will fall back to this if no config mapping is found.
+
+Priority order: config `[colors]` mapping → `X-COLOR` / `COLOR` VEVENT property → calendar default styling.
+
+Example VEVENT snippet with `X-COLOR`:
+
+```ics
+BEGIN:VEVENT
+SUMMARY:Team Meeting
+DTSTART:20260120T090000Z
+DTEND:20260120T100000Z
+X-COLOR:#06b6d4
+END:VEVENT
+```
+
 ### 4. Run the calendar sync:
 
 ```bash

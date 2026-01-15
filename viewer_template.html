@@ -21,9 +21,28 @@
   </div>
   <div id="calendar"></div>
 
+  <!--INJECT_EVENT_COLOR_MAP-->
+
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/ical.js@1.4.0/build/ical.min.js"></script>
   <script>
+    // Helper: compute readable text color (#000 or #fff) for a background hex color
+    function readableTextColor(hex) {
+      try {
+        if (!hex) return '#000000';
+        hex = hex.replace('#','');
+        if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+        const r = parseInt(hex.slice(0,2),16);
+        const g = parseInt(hex.slice(2,4),16);
+        const b = parseInt(hex.slice(4,6),16);
+        // Perceived luminance
+        const lum = 0.2126*r + 0.7152*g + 0.0722*b;
+        return lum > 128 ? '#000000' : '#ffffff';
+      } catch (e) {
+        return '#000000';
+      }
+    }
+
     // Determine token/filename from the current path (e.g., /<token>.html)
     (async function(){
       try {
@@ -53,13 +72,35 @@
 
         const jcal = ICAL.parse(icsText);
         const comp = new ICAL.Component(jcal);
+
         const vevents = comp.getAllSubcomponents('vevent').map(ev => {
           const e = new ICAL.Event(ev);
-          // FullCalendar accepts ISO strings
+
+          // Prefer original summary preserved by the anonymizer; fall back to event summary
+          const origSummary = ev.getFirstPropertyValue('x-orig-summary') || e.summary || '';
+
+          // Resolve color from injected EVENT_COLOR_MAP (keys are matched case-sensitively first, then lowercased)
+          let color = null;
+          if (typeof window.EVENT_COLOR_MAP !== 'undefined' && origSummary) {
+            color = window.EVENT_COLOR_MAP[origSummary] || window.EVENT_COLOR_MAP[(origSummary || '').toLowerCase()] || null;
+          }
+
+          // fallback to VEVENT property X-COLOR or COLOR
+          if (!color) {
+            color = ev.getFirstPropertyValue('x-color') || ev.getFirstPropertyValue('color') || null;
+          }
+
+          const backgroundColor = color || null;
+          const textColor = color ? readableTextColor(color) : null;
+
+          // FullCalendar accepts ISO strings and color properties
           return {
             title: e.summary || '',
             start: e.startDate ? e.startDate.toJSDate().toISOString() : null,
-            end: e.endDate ? e.endDate.toJSDate().toISOString() : null
+            end: e.endDate ? e.endDate.toJSDate().toISOString() : null,
+            backgroundColor: backgroundColor,
+            borderColor: backgroundColor,
+            textColor: textColor
           };
         }).filter(e => e.start);
 

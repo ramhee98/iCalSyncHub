@@ -6,6 +6,29 @@ import string
 import configparser
 import logging
 from logging.handlers import RotatingFileHandler
+import json
+
+def _write_viewer_html_with_map(template_path, dest_path, color_map):
+    """Write a copy of the viewer template to dest_path, injecting a JS color map if provided.
+
+    The template must contain the placeholder comment: <!--INJECT_EVENT_COLOR_MAP-->
+    """
+    try:
+        with open(template_path, 'r') as f:
+            content = f.read()
+        inject = ''
+        if color_map:
+            js = json.dumps(color_map)
+            inject = f"<script>window.EVENT_COLOR_MAP = {js};</script>"
+        if '<!--INJECT_EVENT_COLOR_MAP-->' in content:
+            content = content.replace('<!--INJECT_EVENT_COLOR_MAP-->', inject)
+        else:
+            content = content.replace('</body>', f"{inject}</body>")
+        with open(dest_path, 'w') as f:
+            f.write(content)
+    except Exception:
+        shutil.copyfile(template_path, dest_path)
+
 def get_logger():
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
@@ -123,7 +146,17 @@ def update_token_expiry(username, new_expiry):
                         template = os.path.join(os.path.dirname(__file__), 'viewer_template.html')
                         html_dest = os.path.join(output_path, f"{token}.html")
                         if os.path.exists(template):
-                            shutil.copyfile(template, html_dest)
+                            try:
+                                cfg = configparser.ConfigParser()
+                                cfg.read(CONFIG_FILE)
+                                color_map = {}
+                                # Always inject color mappings for the viewer if provided
+                                if cfg.has_section('colors'):
+                                    for k, v in cfg.items('colors'):
+                                        color_map[k] = v
+                                _write_viewer_html_with_map(template, html_dest, color_map)
+                            except Exception:
+                                shutil.copyfile(template, html_dest)
                     except Exception:
                         pass
         except Exception:
@@ -149,11 +182,21 @@ def ensure_token_links(token):
         if os.path.islink(link_name) or os.path.exists(link_name):
             os.remove(link_name)
         os.symlink(target, link_name)
-        # copy template (non-fatal)
+        # copy template (non-fatal) with injected color map if configured
         try:
             template = os.path.join(os.path.dirname(__file__), 'viewer_template.html')
             if os.path.exists(template):
-                shutil.copyfile(template, html_dest)
+                try:
+                    cfg = configparser.ConfigParser()
+                    cfg.read(CONFIG_FILE)
+                    color_map = {}
+                    # Always inject color mappings for the viewer if provided
+                    if cfg.has_section('colors'):
+                        for k, v in cfg.items('colors'):
+                            color_map[k] = v
+                    _write_viewer_html_with_map(template, html_dest, color_map)
+                except Exception:
+                    shutil.copyfile(template, html_dest)
         except Exception as e:
             logger.warning(f"Failed to copy viewer template for token '{token}': {e}")
         return True, 'Links ensured'
@@ -191,7 +234,17 @@ def add_token(username, expiration=None):
             try:
                 template = os.path.join(os.path.dirname(__file__), 'viewer_template.html')
                 if os.path.exists(template):
-                    shutil.copyfile(template, html_dest)
+                    try:
+                        cfg = configparser.ConfigParser()
+                        cfg.read(CONFIG_FILE)
+                        color_map = {}
+                        # Always inject color mappings for the viewer if provided
+                        if cfg.has_section('colors'):
+                            for k, v in cfg.items('colors'):
+                                color_map[k] = v
+                        _write_viewer_html_with_map(template, html_dest, color_map)
+                    except Exception:
+                        shutil.copyfile(template, html_dest)
             except Exception as e:
                 logger.warning(f"Viewer template not copied for token '{token}': {e}")
         except Exception as e:
