@@ -255,6 +255,27 @@ def get_merged_calendar_url():
 if not domain:
     st.warning("Domain is not set in config.ini. Please set the 'domain' value under [settings].")
 
+# Bulk action: ensure links for all users
+if st.button("Ensure Links for All Users"):
+    pairs_all = load_tokens()
+    if not pairs_all:
+        st.info("No users found.")
+    else:
+        with st.spinner("Ensuring .ics and .html links for all users..."):
+            progress = st.progress(0)
+            total = len(pairs_all)
+            failures = []
+            for i, (u, t, _) in enumerate(pairs_all):
+                ok, msg = ensure_token_links(t)
+                if not ok:
+                    failures.append((u, t, msg))
+                progress.progress(int((i+1)/total*100))
+        if failures:
+            st.error(f"Failed for {len(failures)} users. Check logs for details.")
+        else:
+            st.success("All links ensured.")
+        st.rerun()
+
 # Add token with expiration
 with st.form("add_token_form"):
     username = st.text_input("Enter username:")
