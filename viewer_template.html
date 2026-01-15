@@ -6,9 +6,12 @@
   <title>iCalSyncHub - Calendar Viewer</title>
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css" rel="stylesheet" />
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
-    #top { padding: 1rem; background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
-    #calendar { max-width: 1100px; margin: 1rem auto; }
+    /* Make the page fill the viewport and avoid page scrollbars */
+    html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+    body { font-family: Arial, sans-serif; }
+    #top { padding: 0.75rem 1rem; background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
+    /* Allow the calendar itself to scroll internally if needed, and use remaining height */
+    #calendar { height: calc(100vh - 56px); max-width: 1100px; margin: 0 auto; box-sizing: border-box; padding: 1rem; overflow: auto; }
   </style>
 </head>
 <body>
@@ -62,7 +65,7 @@
 
         const calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
           initialView: 'dayGridMonth',
-          height: 700,
+          height: '100%',
           headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' },
           events: vevents,
           eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false }
