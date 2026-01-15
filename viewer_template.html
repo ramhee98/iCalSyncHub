@@ -142,7 +142,10 @@
             }
           },
           events: vevents,
-          eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false }
+          // Show event times in 24-hour format (no AM/PM)
+          eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
+          // Ensure the time grid slot labels (left column in week/day views) use 24-hour format as well
+          slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false }
         });
         calendar.render();
       } catch (err) {
