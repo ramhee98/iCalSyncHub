@@ -10,6 +10,11 @@
     html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
     body { font-family: Arial, sans-serif; }
     #top { padding: 0.75rem 1rem; background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
+    /* Make the site title non-selectable to avoid accidentally including it when copying the URL */
+    #top strong { user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; }
+    #info { user-select: text; -webkit-user-select: text; }
+    /* Prevent copy button label from being selected when dragging or copying */
+    #copyIcsBtn { user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; }
     /* Allow the calendar itself to scroll internally if needed, use remaining height, and be responsive/full-width */
     #calendar {
       height: calc(100vh - 56px);
@@ -75,7 +80,49 @@
         const path = window.location.pathname;
         const token = path.split('/').pop().replace('.html','');
         const icsUrl = `${token}.ics`;
-        document.getElementById('info').innerHTML = `<a href="${icsUrl}">${icsUrl}</a>`;
+        // Display full absolute ICS URL (including domain) as plain text so users can import it into their client.
+        const absoluteIcsUrl = new URL(icsUrl, window.location.href).toString();
+        const infoEl = document.getElementById('info');
+        infoEl.textContent = absoluteIcsUrl;
+        // Add a small copy-to-clipboard button that copies only the ICS URL (avoids copying the site title)
+        const copyBtn = document.createElement('button');
+        copyBtn.id = 'copyIcsBtn';
+        copyBtn.type = 'button';
+        copyBtn.textContent = 'Copy';
+        copyBtn.setAttribute('aria-label', 'Copy ICS URL');
+        copyBtn.style.marginLeft = '0.5rem';
+        copyBtn.style.padding = '0.15rem 0.5rem';
+        copyBtn.style.fontSize = '0.9rem';
+        copyBtn.style.cursor = 'pointer';
+        copyBtn.style.border = '1px solid #cbd5e1';
+        copyBtn.style.borderRadius = '4px';
+        copyBtn.style.background = '#fff';
+        copyBtn.style.color = '#111827';
+        // Ensure the button label cannot be selected (extra safeguard for browsers)
+        copyBtn.style.userSelect = 'none';
+        copyBtn.setAttribute('unselectable', 'on');
+        copyBtn.onselectstart = () => false;
+        copyBtn.addEventListener('click', async () => {
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(absoluteIcsUrl);
+            } else {
+              const ta = document.createElement('textarea');
+              ta.value = absoluteIcsUrl;
+              document.body.appendChild(ta);
+              ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+            }
+            copyBtn.textContent = 'Copied!';
+            setTimeout(() => copyBtn.textContent = 'Copy', 2000);
+          } catch (e) {
+            console.error('Copy failed', e);
+            copyBtn.textContent = 'Error';
+            setTimeout(() => copyBtn.textContent = 'Copy', 2000);
+          }
+        });
+        infoEl.appendChild(copyBtn);
 
         const resp = await fetch(icsUrl);
         if (!resp.ok) throw new Error('Failed to fetch ICS: ' + resp.status);
