@@ -128,39 +128,234 @@
         if (!resp.ok) throw new Error('Failed to fetch ICS: ' + resp.status);
         const icsText = await resp.text();
 
-        const jcal = ICAL.parse(icsText);
-        const comp = new ICAL.Component(jcal);
+        // Client-side normalization to reduce faulty VEVENTs (ported from tools/simulate_normalizer.py)
+        function normalizeIcs(s) {
+          try {
+            // Unfold lines
+            s = s.replace(/\r?\n[ \t]+/g, '');
+
+            // Remove broken TZID fragments that contain spaces, commas, or parentheses (e.g., "TZID=(UTC+01:00) Amsterdam, Berlin,...")
+            // This turns e.g. "DTSTART;TZID=(UTC+01:00) Amsterdam, Berlin:20260105T131500" into "DTSTART:20260105T131500"
+            s = s.replace(/^(DTSTART|DTEND|EXDATE|RECURRENCE-ID);TZID="?[^:\r\n\"]*[ \t,\(\)][^:\r\n\"]*"?:/gim, '$1:');
+
+            // Also strip stray alphabetic fragments that may remain before the colon (e.g., "DTEND;TZID=... Ams:2026...")
+            s = s.replace(/^(DTSTART|DTEND|EXDATE|RECURRENCE-ID)(;[^:]*)?\s+[A-Za-z]{1,10}(?=:\d)/gim, '$1');
+
+            // Normalize date property lines to ensure the value after the colon is a clean date/time token.
+            // This picks the last date-like token on the line (handles folded or messy TZID prefixes).
+            s = s.replace(/^(DTSTART[^:]*|DTEND[^:]*|EXDATE[^:]*|RECURRENCE-ID[^:]*):(.*)$/gim, (m, prop, rest) => {
+              try {
+                const matches = (rest || '').match(/(\d{8}T\d{6}Z?|\d{8})/g);
+                if (matches && matches.length) return `${prop}:${matches[matches.length-1]}`;
+                return `${prop}:${(rest||'').replace(/\s+/g,'')}`;
+              } catch (e) { return m; }
+            });
+
+            // AM/PM normalization: handle only date-time property lines (DTSTART/DTEND/EXDATE/RECURRENCE-ID)
+            // Convert forms like "YYYY-MM-DD 9:00 AM", "YYYYMMDDT090000 AM", or compact "YYYYMMDDT090000Am" into canonical YYYYMMDDTHHMMSS.
+            // First handle compact 6-digit time tokens optionally followed by AM/PM (e.g., "20260117T090000Am" or "2026-01-17T090000 AM").
+            s = s.replace(/^(DTSTART[^:]*:|DTEND[^:]*:|EXDATE[^:]*:|RECURRENCE-ID[^:]*:)(\d{8}T)(\d{6})(?:\s*(AM|PM))?/gim,
+                          (m, prop, datePrefix, time6, ampm) => {
+              try {
+                let hh = time6.slice(0,2);
+                const mm = time6.slice(2,4);
+                const ss = time6.slice(4,6);
+                if (ampm) {
+                  const upper = (ampm || '').toUpperCase();
+                  let hour = parseInt(hh, 10);
+                  if (upper === 'PM' && hour < 12) hour += 12;
+                  if (upper === 'AM' && hour === 12) hour = 0;
+                  hh = String(hour).padStart(2, '0');
+                }
+                return `${prop}${datePrefix}${hh}${mm}${ss}`;
+              } catch (e) { return m; }
+            });
+
+            // Also handle hyphenated ISO date with compact time and optional AM/PM (e.g., "2026-01-17T090000Am")
+            s = s.replace(/^(DTSTART[^:]*:|DTEND[^:]*:|EXDATE[^:]*:|RECURRENCE-ID[^:]*:)(\d{4}-\d{2}-\d{2}T)(\d{6})(?:\s*(AM|PM))?/gim,
+                          (m, prop, datePrefix, time6, ampm) => {
+              try {
+                let hh = time6.slice(0,2);
+                const mm = time6.slice(2,4);
+                const ss = time6.slice(4,6);
+                if (ampm) {
+                  const upper = (ampm || '').toUpperCase();
+                  let hour = parseInt(hh, 10);
+                  if (upper === 'PM' && hour < 12) hour += 12;
+                  if (upper === 'AM' && hour === 12) hour = 0;
+                  hh = String(hour).padStart(2, '0');
+                }
+                const dateBase = datePrefix.replace(/T$/, '').replace(/-/g, '');
+                return `${prop}${dateBase}T${hh}${mm}${ss}`;
+              } catch (e) { return m; }
+            });
+
+            // Fallback: handle colon-form times like "9:00 AM" or "09:00AM"
+            s = s.replace(/^(DTSTART[^:]*:|DTEND[^:]*:|EXDATE[^:]*:|RECURRENCE-ID[^:]*:)(\d{4}-\d{2}-\d{2}T|\d{8}T|\d{4}-\d{2}-\d{2} )(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)/gim,
+                    (m, prop, datePrefix, h, mnt, sec, ampm) => {
+              try {
+                const hour = parseInt(h, 10);
+                const upper = (ampm || '').toUpperCase();
+                let newHour = hour % 12;
+                if (upper === 'PM') newHour += 12;
+                if (hour === 12 && upper === 'AM') newHour = 0;
+                const hh = String(newHour).padStart(2, '0');
+                const ssec = sec || '00';
+                // Normalize date base to YYYYMMDD
+                let dateBase = datePrefix.replace(/T$/, '').trim();
+                if (dateBase.indexOf('-') !== -1) dateBase = dateBase.replace(/-/g, '');
+                return `${prop}${dateBase}T${hh}${mnt}${ssec}`;
+              } catch (e) {
+                return m;
+              }
+            });
+
+            // Strip stray AM/PM tokens that might still remain at end of property values (e.g., "DTSTART:20260117T090000Am")
+            s = s.replace(/^(DTSTART[^:]*:)(.*?)(?:\s*(AM|PM))$/gim, (m, prop, val) => {
+              return `${prop}${val}`;
+            });
+
+            // Handle TZID with UTC offsets or city names for DTSTART/DTEND/EXDATE/RECURRENCE-ID
+            const tzCityMap = ['Amsterdam','Berlin','Vienna','Rome','Stockholm','London','Paris','Zurich','Bern'];
+            s = s.replace(/^(DTSTART|DTEND|EXDATE|RECURRENCE-ID)(;TZID="?([^";:\r\n]+)"?)?:(.*)$/gim, (m, prop, tzParam, tz, val) => {
+              if (!tz) return `${prop}:${val}`;
+              const off = tz.match(/UTC\s*([+-]\d{2}):?(\d{2})?/i);
+              if (off) {
+                // Convert date-times with UTC offset to Z-formatted UTC timestamps when possible
+                try {
+                  const parts = val.split(',');
+                  const out = parts.map(dt => {
+                    if (/^\d{8}$/.test(dt)) return dt; // date-only
+                    const mdt = dt.match(/^(\d{8}T\d{6})/);
+                    if (!mdt) return dt;
+                    const sdt = mdt[1];
+                    const y = parseInt(sdt.slice(0,4),10);
+                    const mo = parseInt(sdt.slice(4,6),10);
+                    const d = parseInt(sdt.slice(6,8),10);
+                    const hh = parseInt(sdt.slice(9,11),10);
+                    const mm = parseInt(sdt.slice(11,13),10);
+                    const ss = parseInt(sdt.slice(13,15),10);
+                    const sign = off[1].startsWith('-') ? -1 : 1;
+                    const oh = parseInt(off[1].slice(1,3),10);
+                    const om = parseInt(off[2] || '0',10);
+                    const offsetMinutes = sign * (oh*60 + om);
+                    const dtObj = new Date(Date.UTC(y, mo-1, d, hh, mm, ss));
+                    // shift by offset to UTC
+                    const utcMs = dtObj.getTime() - offsetMinutes*60*1000;
+                    const utc = new Date(utcMs);
+                    const YYYY = utc.getUTCFullYear();
+                    const MM = String(utc.getUTCMonth()+1).padStart(2,'0');
+                    const DD = String(utc.getUTCDate()).padStart(2,'0');
+                    const H = String(utc.getUTCHours()).padStart(2,'0');
+                    const Min = String(utc.getUTCMinutes()).padStart(2,'0');
+                    const S = String(utc.getUTCSeconds()).padStart(2,'0');
+                    return `${YYYY}${MM}${DD}T${H}${Min}${S}Z`;
+                  });
+                  return `${prop}:${out.join(',')}`;
+                } catch (e) {
+                  return `${prop}:${val}`;
+                }
+              }
+              const found = tzCityMap.find(c => tz.indexOf(c) !== -1);
+              if (found) return `${prop};TZID=Europe/${found}:${val}`;
+              // Last resort: drop the TZID and keep the value
+              return `${prop}:${val}`;
+            });
+
+            // Remove remaining bad TZID params that contain spaces, commas, or parentheses
+            s = s.replace(/;TZID="?[^:\r\n\"]*[ \t,\(\)][^:\r\n\"]*"?/g, '');
+
+            // Fix colon folds (where colon moved to next folded line)
+            s = s.replace(/\r?\n\s*:/g, ':');
+
+            return s;
+          } catch (e) {
+            console.warn('Normalization failed', e);
+            return s;
+          }
+        }
+
+        const normalizedIcs = normalizeIcs(icsText);
+        // Ensure `comp` is available in the outer scope so later code can reference it even if parsing falls back
+        let comp = null;
+        try {
+          // Try parsing normalized text; fallback to raw if parse fails
+          let beforeCount = null;
+          try { const cb = new ICAL.Component(ICAL.parse(icsText)); beforeCount = cb.getAllSubcomponents('vevent').length; } catch(e){}
+          const jcal = ICAL.parse(normalizedIcs);
+          comp = new ICAL.Component(jcal);
+          try { const ca = new ICAL.Component(ICAL.parse(normalizedIcs)); console.info('VEVENTs parsed: before=%s after=%s', beforeCount === null ? 'unknown' : beforeCount, ca.getAllSubcomponents('vevent').length); } catch(e){}
+        } catch (err) {
+          // If normalized parse fails, attempt raw parse for diagnostics
+          try {
+            const jcal = ICAL.parse(icsText);
+            comp = new ICAL.Component(jcal);
+            console.info('VEVENTs parsed (raw only) =', comp.getAllSubcomponents('vevent').length);
+          } catch (err2) {
+            throw err; // rethrow the original normalized parse error
+          }
+        }
+        // 'comp' variable is defined (or null if both parses failed); we keep using that as before.
+
+        // Build VEVENTs safely: skip faulty events and collect diagnostic info
+        const _totalVevents = comp.getAllSubcomponents('vevent').length;
+        let _skippedNoStart = 0;
+        let _skippedException = 0;
+        const _skippedNoStartSamples = [];
+        const _skippedExceptionSamples = [];
 
         const vevents = comp.getAllSubcomponents('vevent').map(ev => {
-          const e = new ICAL.Event(ev);
+          try {
+            const e = new ICAL.Event(ev);
 
-          // Prefer original summary preserved by the anonymizer; fall back to event summary
-          const origSummary = ev.getFirstPropertyValue('x-orig-summary') || e.summary || '';
+            // Ensure we have a valid start date; if not, treat as faulty and skip (record sample)
+            const start = e.startDate ? e.startDate.toJSDate().toISOString() : null;
+            if (!start) {
+              _skippedNoStart++;
+              const uid = ev.getFirstPropertyValue('uid') || '(no-uid)';
+              const summary = (ev.getFirstPropertyValue('x-orig-summary') || e.summary || '').toString();
+              if (_skippedNoStartSamples.length < 10) _skippedNoStartSamples.push({ uid, summary });
+              return null;
+            }
 
-          // Resolve color from injected EVENT_COLOR_MAP (keys are matched case-sensitively first, then lowercased)
-          let color = null;
-          if (typeof window.EVENT_COLOR_MAP !== 'undefined' && origSummary) {
-            color = window.EVENT_COLOR_MAP[origSummary] || window.EVENT_COLOR_MAP[(origSummary || '').toLowerCase()] || null;
+            // Prefer original summary preserved by the anonymizer; fall back to event summary
+            const origSummary = ev.getFirstPropertyValue('x-orig-summary') || e.summary || '';
+
+            // Resolve color from injected EVENT_COLOR_MAP (keys are matched case-sensitively first, then lowercased)
+            let color = null;
+            if (typeof window.EVENT_COLOR_MAP !== 'undefined' && origSummary) {
+              color = window.EVENT_COLOR_MAP[origSummary] || window.EVENT_COLOR_MAP[(origSummary || '').toLowerCase()] || null;
+            }
+
+            // fallback to VEVENT property X-COLOR or COLOR
+            if (!color) {
+              color = ev.getFirstPropertyValue('x-color') || ev.getFirstPropertyValue('color') || null;
+            }
+
+            const backgroundColor = color || null;
+            const textColor = color ? readableTextColor(color) : null;
+
+            // FullCalendar accepts ISO strings and color properties
+            return {
+              title: e.summary || '',
+              start: start,
+              end: e.endDate ? e.endDate.toJSDate().toISOString() : null,
+              backgroundColor: backgroundColor,
+              borderColor: backgroundColor,
+              textColor: textColor
+            };
+          } catch (err) {
+            // Non-fatal: skip this VEVENT and record sample for debugging
+            _skippedException++;
+            const uid = ev.getFirstPropertyValue('uid') || '(no-uid)';
+            const summary = (ev.getFirstPropertyValue('x-orig-summary') || ev.getFirstPropertyValue('summary') || '').toString();
+            if (_skippedExceptionSamples.length < 10) _skippedExceptionSamples.push({ uid, summary, error: (err && err.message) || String(err) });
+            console.warn('Skipping faulty VEVENT:', uid, summary, err);
+            return null;
           }
+        }).filter(e => e && e.start);
 
-          // fallback to VEVENT property X-COLOR or COLOR
-          if (!color) {
-            color = ev.getFirstPropertyValue('x-color') || ev.getFirstPropertyValue('color') || null;
-          }
-
-          const backgroundColor = color || null;
-          const textColor = color ? readableTextColor(color) : null;
-
-          // FullCalendar accepts ISO strings and color properties
-          return {
-            title: e.summary || '',
-            start: e.startDate ? e.startDate.toJSDate().toISOString() : null,
-            end: e.endDate ? e.endDate.toJSDate().toISOString() : null,
-            backgroundColor: backgroundColor,
-            borderColor: backgroundColor,
-            textColor: textColor
-          };
-        }).filter(e => e.start);
+        const _includedEvents = vevents.length;
 
         const calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
           initialView: 'dayGridMonth',
@@ -206,6 +401,100 @@
           slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false }
         });
         calendar.render();
+
+        // If any VEVENTs were skipped due to being faulty, show a small non-intrusive notice with breakdown
+        const totalSkipped = _skippedNoStart + _skippedException;
+        if (totalSkipped > 0) {
+          const note = document.createElement('span');
+          note.style.marginLeft = '0.75rem';
+          note.style.color = '#b45309';
+          note.style.fontSize = '0.9rem';
+          note.textContent = ` (skipped ${totalSkipped} events: ${_skippedNoStart} no-start, ${_skippedException} parse errors)`;
+          infoEl.appendChild(note);
+
+          // Add a details button to show inline diagnostics (so users don't need DevTools)
+          const detailsBtn = document.createElement('button');
+          detailsBtn.type = 'button';
+          detailsBtn.textContent = 'Details';
+          detailsBtn.style.marginLeft = '0.5rem';
+          detailsBtn.style.fontSize = '0.9rem';
+          detailsBtn.style.cursor = 'pointer';
+          detailsBtn.style.border = '1px solid #cbd5e1';
+          detailsBtn.style.borderRadius = '4px';
+          detailsBtn.style.padding = '0.15rem 0.5rem';
+          detailsBtn.onclick = () => {
+            debugPanel.style.display = debugPanel.style.display === 'none' ? 'block' : 'none';
+          };
+          infoEl.appendChild(detailsBtn);
+
+          // Inline debug panel (hidden by default)
+          const debugPanel = document.createElement('div');
+          debugPanel.style.marginTop = '0.5rem';
+          debugPanel.style.padding = '0.75rem';
+          debugPanel.style.background = '#fff7ed';
+          debugPanel.style.border = '1px solid #f0ab00';
+          debugPanel.style.borderRadius = '6px';
+          debugPanel.style.color = '#92400e';
+          debugPanel.style.fontSize = '0.9rem';
+          debugPanel.style.display = 'none';
+          debugPanel.id = 'ics-debug-panel';
+
+          const summaryText = document.createElement('div');
+          summaryText.textContent = `Parsed VEVENTs: total=${_totalVevents}, included=${_includedEvents}, skipped=${totalSkipped}`;
+          debugPanel.appendChild(summaryText);
+
+          if (_skippedNoStartSamples.length) {
+            const h = document.createElement('div'); h.style.fontWeight = '600'; h.style.marginTop = '0.5rem'; h.textContent = `Samples (no-start, showing up to ${Math.min(50, _skippedNoStartSamples.length)}):`;
+            debugPanel.appendChild(h);
+            const ul = document.createElement('ul'); ul.style.margin = '0.25rem 0 0 1rem';
+            _skippedNoStartSamples.slice(0,50).forEach(s => {
+              const li = document.createElement('li'); li.textContent = `${s.uid} — ${s.summary}`; ul.appendChild(li);
+            });
+            debugPanel.appendChild(ul);
+          }
+
+          if (_skippedExceptionSamples.length) {
+            const h2 = document.createElement('div'); h2.style.fontWeight = '600'; h2.style.marginTop = '0.5rem'; h2.textContent = `Samples (parse exceptions, showing up to ${Math.min(50, _skippedExceptionSamples.length)}):`;
+            debugPanel.appendChild(h2);
+            const ul2 = document.createElement('ul'); ul2.style.margin = '0.25rem 0 0 1rem';
+            _skippedExceptionSamples.slice(0,50).forEach(s => {
+              const li = document.createElement('li'); li.textContent = `${s.uid} — ${s.summary} — ${s.error}`; ul2.appendChild(li);
+            });
+            debugPanel.appendChild(ul2);
+          }
+
+          // Download JSON button for full samples (helps offline debugging)
+          const dlBtn = document.createElement('button');
+          dlBtn.type = 'button';
+          dlBtn.textContent = 'Download debug JSON';
+          dlBtn.style.marginTop = '0.5rem';
+          dlBtn.style.fontSize = '0.9rem';
+          dlBtn.style.cursor = 'pointer';
+          dlBtn.style.border = '1px solid #cbd5e1';
+          dlBtn.style.borderRadius = '4px';
+          dlBtn.style.padding = '0.15rem 0.5rem';
+          dlBtn.onclick = () => {
+            const payload = {
+              total: _totalVevents,
+              included: _includedEvents,
+              skipped_no_start: _skippedNoStart,
+              skipped_exceptions: _skippedException,
+              samples_no_start: _skippedNoStartSamples,
+              samples_exceptions: _skippedExceptionSamples
+            };
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = `${token}_ics_debug.json`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+          };
+          debugPanel.appendChild(dlBtn);
+
+          infoEl.appendChild(debugPanel);
+
+          // Console diagnostics (limited samples) to help troubleshoot why events were skipped
+          console.info(`Parsed VEVENTs: total=${_totalVevents}, included=${_includedEvents}, skipped=${totalSkipped}`);
+          if (_skippedNoStartSamples.length) console.info('Samples of events skipped (no start):', _skippedNoStartSamples);
+          if (_skippedExceptionSamples.length) console.info('Samples of events skipped (exceptions):', _skippedExceptionSamples);
+        }
       } catch (err) {
         document.body.innerHTML = `<div style="padding:1rem; color:#900">Error loading calendar: ${err}</div>`;
       }
