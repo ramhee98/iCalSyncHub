@@ -6,10 +6,10 @@
   <title>iCalSyncHub - Calendar Viewer</title>
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css" rel="stylesheet" />
   <style>
-    /* Make the page fill the viewport and avoid page scrollbars */
-    html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
-    body { font-family: Arial, sans-serif; }
-    #top { padding: 0.75rem 1rem; background: #f3f4f6; border-bottom: 1px solid #e5e7eb; }
+    /* Make the page fill the viewport and use a column flex layout so the calendar can scroll inside without clipping */
+    html, body { height: 100%; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; display: flex; flex-direction: column; min-height: 100vh; }
+    #top { padding: 0.75rem 1rem; background: #f3f4f6; border-bottom: 1px solid #e5e7eb; flex: 0 0 auto; }
     /* Make the site title non-selectable to avoid accidentally including it when copying the URL */
     #top strong { user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; }
     #info { user-select: text; -webkit-user-select: text; }
@@ -17,16 +17,42 @@
     #copyIcsBtn { user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; }
     /* Allow the calendar itself to scroll internally if needed, use remaining height, and be responsive/full-width */
     #calendar {
-      height: calc(100vh - 56px);
+      /* Use flexbox sizing to avoid brittle calc() math and prevent clipping inside flex containers. Setting min-height:0
+         allows the internal scrollbar to appear and not grow the parent, which is a common flexbox scrolling pitfall. */
+      flex: 1 1 auto;
+      min-height: 0;
       width: 100%;
       max-width: 1400px; /* cap to avoid ultra-wide layouts */
       margin: 0 auto;
       box-sizing: border-box;
       padding: 1rem;
-      overflow: auto;
+      overflow-y: auto;
+      overflow-x: hidden;
+      /* Reserve stable gutter for scrollbars so they don't overlay the rightmost day column in month view */
+      scrollbar-gutter: stable;
+      -webkit-overflow-scrolling: touch;
     }
+
+    /* Keep small screens consistent */
     @media (max-width: 600px) {
+      /* On small screens we reduce padding */
       #calendar { padding: 0.5rem; }
+    }
+
+    /* Fallback for older browsers that don't support `scrollbar-gutter` */
+    @supports not (scrollbar-gutter: stable) {
+      #calendar { padding-right: 16px; }
+    }
+
+    /* Ensure day numbers and top-of-cell content sit above any scrollbars or adjacent elements */
+    .fc .fc-daygrid-day-top {
+      position: relative;
+      z-index: 2;
+    }
+
+    /* Ensure the FullCalendar grid doesn't create its own overlapping scroll area; allow the container scrollbar to be the primary scroller */
+    .fc .fc-scrollgrid, .fc .fc-daygrid-body {
+      overflow: visible !important;
     }
   </style>
 </head>
