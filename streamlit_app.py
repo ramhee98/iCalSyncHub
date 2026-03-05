@@ -438,7 +438,8 @@ if pairs:
         if global_show_details:
             toggle_label = "Details: ON" if user_show_details else "Details: OFF"
             toggle_help = "User can see full event details" if user_show_details else "User sees anonymized events (Busy/Free)"
-            if col1.button(toggle_label, key=f"toggle_details_{username}", help=toggle_help):
+            btn_type = "primary" if user_show_details else "secondary"
+            if col1.button(toggle_label, key=f"toggle_details_{username}", help=toggle_help, type=btn_type):
                 if update_user_show_details(username, not user_show_details):
                     st.rerun()
 
