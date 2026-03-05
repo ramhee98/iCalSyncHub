@@ -347,10 +347,17 @@
             // Prefer original summary preserved by the anonymizer; fall back to event summary
             const origSummary = ev.getFirstPropertyValue('x-orig-summary') || e.summary || '';
 
-            // Resolve color from injected EVENT_COLOR_MAP (keys are matched case-sensitively first, then lowercased)
+            // Resolve color from injected EVENT_COLOR_MAP.
+            // Try: 1) full summary exact, 2) full summary lowercase,
+            // 3) bracketed label suffix e.g. "Busy [Work]" → "Work" exact, 4) same lowercase.
             let color = null;
             if (typeof window.EVENT_COLOR_MAP !== 'undefined' && origSummary) {
-              color = window.EVENT_COLOR_MAP[origSummary] || window.EVENT_COLOR_MAP[(origSummary || '').toLowerCase()] || null;
+              const _labelMatch = origSummary.match(/\[([^\]]+)\]$/);
+              const _label = _labelMatch ? _labelMatch[1] : null;
+              color = window.EVENT_COLOR_MAP[origSummary]
+                || window.EVENT_COLOR_MAP[origSummary.toLowerCase()]
+                || (_label ? window.EVENT_COLOR_MAP[_label] || window.EVENT_COLOR_MAP[_label.toLowerCase()] : null)
+                || null;
             }
 
             // fallback to VEVENT property X-COLOR or COLOR
