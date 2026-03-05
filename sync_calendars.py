@@ -218,7 +218,9 @@ def anonymize_event(event, summary="Busy"):
         event: The VEVENT to anonymize
         summary: The text to use for the SUMMARY property when anonymized
     """
-    event['SUMMARY'] = summary  # Replace with generic or custom text
+    if 'SUMMARY' in event:
+        del event['SUMMARY']
+    event.add('SUMMARY', summary)  # Replace with generic or custom text
     for prop in ('DESCRIPTION', 'LOCATION', 'ATTENDEE', 'ORGANIZER'):
         if prop in event:
             del event[prop]  # Remove sensitive details
