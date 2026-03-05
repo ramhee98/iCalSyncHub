@@ -211,6 +211,12 @@ def add_timezones_to_calendar(target_calendar, timezones):
         target_calendar.add_component(timezone)
 
 
+def get_availability_label(event):
+    """Return 'Free' if the event is transparent (free), otherwise 'Busy'."""
+    transp = str(event.get('TRANSP', 'OPAQUE')).upper()
+    return 'Free' if transp == 'TRANSPARENT' else 'Busy'
+
+
 def anonymize_event(event, summary="Busy"):
     """Anonymize event details to show only availability.
 
@@ -340,9 +346,15 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
                             filtered_events += 1
                             continue
                         
+                        label = f" [{custom_summary}]" if custom_summary else ""
                         if not show_details:
-                            # Use custom summary if provided, otherwise default to 'Busy'
-                            anonymize_event(component, custom_summary or 'Busy')
+                            status = get_availability_label(component)
+                            anonymize_event(component, f"{status}{label}")
+                        elif label:
+                            existing = str(component.get('SUMMARY', ''))
+                            if 'SUMMARY' in component:
+                                del component['SUMMARY']
+                            component.add('SUMMARY', f"{existing}{label}")
                         normalize_event_timezone(component)
                         combined_calendar.add_component(component)
             except ValueError as e:
