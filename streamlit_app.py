@@ -8,6 +8,11 @@ import logging
 from logging.handlers import RotatingFileHandler
 import json
 
+def get_anon_output_path(output_path):
+    """Return the path for the anonymized companion ICS file (mirrors sync_calendars.py)."""
+    base, ext = os.path.splitext(output_path)
+    return f"{base}_anon{ext}"
+
 def _write_viewer_html_with_map(template_path, dest_path, color_map):
     """Write a copy of the viewer template to dest_path, injecting a JS color map if provided.
 
@@ -76,30 +81,39 @@ def load_tokens():
     if not os.path.exists(TOKENS_FILE):
         return []
     with open(TOKENS_FILE, "r") as f:
-        # Each line: username:token:expiration (expiration is ISO format or empty for no expiration)
+        # Each line: username:token:expiration:show_details
+        # expiration may contain colons (ISO datetime), so split on first 2 only,
+        # then strip :true/:false suffix from the remainder for show_details.
         pairs = []
         raw_lines = f.readlines()
         for line in raw_lines:
             line = line.strip()
             if not line:
                 continue
-            parts = line.split(":")
-            if len(parts) == 2:
-                username, token = parts
-                expiration = ""
-            elif len(parts) == 3:
-                username, token, expiration = parts
-            else:
-                # If more than 3 parts, join everything after the second as expiration
-                username, token = parts[:2]
-                expiration = ":".join(parts[2:])
-            pairs.append((username, token, expiration))
+            parts = line.split(":", 2)  # username, token, rest
+            if len(parts) < 2:
+                continue
+            username = parts[0]
+            token = parts[1]
+            rest = parts[2] if len(parts) > 2 else ""
+            # Detect trailing :true / :false for the show_details flag
+            show_details_str = "false"
+            if rest.endswith(":true") or rest.endswith(":True"):
+                show_details_str = "true"
+                rest = rest[:-5]
+            elif rest.endswith(":false") or rest.endswith(":False"):
+                show_details_str = "false"
+                rest = rest[:-6]
+            expiration = rest
+            pairs.append((username, token, expiration, show_details_str))
         return pairs
 
 def save_tokens(pairs):
     with open(TOKENS_FILE, "w") as f:
-        for username, token, expiration in pairs:
-            f.write(f"{username}:{token}:{expiration}\n")
+        for entry in pairs:
+            username, token, expiration = entry[0], entry[1], entry[2]
+            show_details_str = entry[3] if len(entry) > 3 else "false"
+            f.write(f"{username}:{token}:{expiration}:{show_details_str}\n")
 
 # Move update_token_expiry to top level
 def update_token_expiry(username, new_expiry):
@@ -108,10 +122,14 @@ def update_token_expiry(username, new_expiry):
     updated = False
     token = None
     old_expiry = None
-    for i, (u, t, e) in enumerate(pairs):
+    show_details_for_user = "false"
+    for i, entry in enumerate(pairs):
+        u, t, e = entry[0], entry[1], entry[2]
+        sd = entry[3] if len(entry) > 3 else "false"
         if u == username:
             old_expiry = e
-            pairs[i] = (u, t, new_expiry)
+            show_details_for_user = sd
+            pairs[i] = (u, t, new_expiry, sd)
             token = t
             updated = True
             break
@@ -140,31 +158,34 @@ def update_token_expiry(username, new_expiry):
                     except Exception:
                         pass
                 if recreate and not os.path.islink(link_name) and not os.path.exists(link_name):
-                    os.symlink(target, link_name)
-                    # Create viewer html next to the .ics if template exists
-                    try:
-                        template = os.path.join(os.path.dirname(__file__), 'viewer_template.html')
-                        html_dest = os.path.join(output_path, f"{token}.html")
-                        if os.path.exists(template):
-                            try:
-                                cfg = configparser.ConfigParser()
-                                cfg.read(CONFIG_FILE)
-                                color_map = {}
-                                # Always inject color mappings for the viewer if provided
-                                if cfg.has_section('colors'):
-                                    for k, v in cfg.items('colors'):
-                                        color_map[k] = v
-                                _write_viewer_html_with_map(template, html_dest, color_map)
-                            except Exception:
-                                shutil.copyfile(template, html_dest)
-                    except Exception:
-                        pass
+                    sd_bool = show_details_for_user.lower() == "true"
+                    ensure_token_links(token, sd_bool)
         except Exception:
             pass
     return updated
+def update_user_show_details(username, show_details_for_user: bool):
+    """Toggle the per-user show_details flag and reroute the symlink accordingly."""
+    pairs = load_tokens()
+    logger = get_logger()
+    token = None
+    sd_str = "true" if show_details_for_user else "false"
+    for i, entry in enumerate(pairs):
+        if entry[0] == username:
+            token = entry[1]
+            pairs[i] = (entry[0], entry[1], entry[2], sd_str)
+            break
+    if token is None:
+        return False
+    save_tokens(pairs)
+    logger.info(f"show_details set to '{sd_str}' for user '{username}' (token: {token})")
+    ensure_token_links(token, show_details_for_user)
+    return True
 
-def ensure_token_links(token):
+
+def ensure_token_links(token, show_details_for_user=False):
     """Ensure the .ics symlink and the per-token .html viewer exist.
+    When the global show_details=true, users with show_details_for_user=False
+    get a symlink to the anonymized companion ICS instead of the main file.
     Returns (success: bool, message: str)
     """
     logger = get_logger()
@@ -172,9 +193,15 @@ def ensure_token_links(token):
     config.read(CONFIG_FILE)
     output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
     filename = config.get('settings', 'filename', fallback='').lstrip('/')
+    global_show_details = config.getboolean('settings', 'show_details', fallback=True)
     if not output_path or not filename:
         return False, 'output_path or filename not configured in config.ini'
-    target = os.path.join(output_path, filename)
+    main_target = os.path.join(output_path, filename)
+    # Route to anon companion when global details are on but user has no detail access
+    if global_show_details and not show_details_for_user:
+        target = get_anon_output_path(main_target)
+    else:
+        target = main_target
     link_name = os.path.join(output_path, f"{token}.ics")
     html_dest = os.path.join(output_path, f"{token}.html")
     try:
@@ -205,17 +232,18 @@ def ensure_token_links(token):
         return False, str(e)
 
 
-def add_token(username, expiration=None):
+def add_token(username, expiration=None, show_details_for_user=False):
     pairs = load_tokens()
     logger = get_logger()
     if not username:
         return False, "Username cannot be empty."
     # Prevent duplicate usernames
-    if any(u == username for u, _, _ in pairs):
+    if any(entry[0] == username for entry in pairs):
         return False, f"Username '{username}' already exists."
     token = generate_token()
     expiration_str = expiration if expiration else ""
-    pairs.append((username, token, expiration_str))
+    sd_str = "true" if show_details_for_user else "false"
+    pairs.append((username, token, expiration_str, sd_str))
     save_tokens(pairs)
     # Create symlink for the token in output_path
     config = configparser.ConfigParser()
@@ -223,30 +251,11 @@ def add_token(username, expiration=None):
     output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
     filename = config.get('settings', 'filename', fallback='').lstrip('/')
     if output_path and filename:
-        target = os.path.join(output_path, filename)
-        link_name = os.path.join(output_path, f"{token}.ics")
-        html_dest = os.path.join(output_path, f"{token}.html")
         try:
-            if os.path.islink(link_name) or os.path.exists(link_name):
-                os.remove(link_name)
-            os.symlink(target, link_name)
-            # Copy viewer template to per-token html if available (non-fatal)
-            try:
-                template = os.path.join(os.path.dirname(__file__), 'viewer_template.html')
-                if os.path.exists(template):
-                    try:
-                        cfg = configparser.ConfigParser()
-                        cfg.read(CONFIG_FILE)
-                        color_map = {}
-                        # Always inject color mappings for the viewer if provided
-                        if cfg.has_section('colors'):
-                            for k, v in cfg.items('colors'):
-                                color_map[k] = v
-                        _write_viewer_html_with_map(template, html_dest, color_map)
-                    except Exception:
-                        shutil.copyfile(template, html_dest)
-            except Exception as e:
-                logger.warning(f"Viewer template not copied for token '{token}': {e}")
+            ok, msg = ensure_token_links(token, show_details_for_user)
+            if not ok:
+                logger.error(f"Token created for '{username}' but failed to create symlink: {msg}")
+                return False, f"Token created, but failed to create symlink: {msg}"
         except Exception as e:
             logger.error(f"Token created for '{username}' but failed to create symlink: {e}")
             return False, f"Token created, but failed to create symlink: {e}"
@@ -261,11 +270,11 @@ def remove_token(username):
     config.read(CONFIG_FILE)
     output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
     # Find the token to remove
-    for u, t, e in pairs:
-        if u == username:
-            removed_token = t
+    for entry in pairs:
+        if entry[0] == username:
+            removed_token = entry[1]
             break
-    new_pairs = [(u, t, e) for u, t, e in pairs if u != username]
+    new_pairs = [entry for entry in pairs if entry[0] != username]
     if len(new_pairs) == len(pairs):
         return False
     save_tokens(new_pairs)
@@ -318,8 +327,10 @@ if st.button("Ensure Links for All Users"):
             progress = st.progress(0)
             total = len(pairs_all)
             failures = []
-            for i, (u, t, _) in enumerate(pairs_all):
-                ok, msg = ensure_token_links(t)
+            for i, entry in enumerate(pairs_all):
+                u, t = entry[0], entry[1]
+                sd = (entry[3] if len(entry) > 3 else "false").lower() == "true"
+                ok, msg = ensure_token_links(t, sd)
                 if not ok:
                     failures.append((u, t, msg))
                 progress.progress(int((i+1)/total*100))
@@ -391,7 +402,12 @@ if pairs:
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
-    for idx, (username, token, expiration) in enumerate(pairs):
+    global_show_details = config.getboolean('settings', 'show_details', fallback=True)
+    for idx, entry in enumerate(pairs):
+        username = entry[0]
+        token = entry[1]
+        expiration = entry[2]
+        user_show_details = (entry[3] if len(entry) > 3 else "false").lower() == "true"
         status = token_expiry_status(expiration)
         # Remove symlink for expired tokens
         if status == 'expired' and output_path:
@@ -417,6 +433,14 @@ if pairs:
             col1.caption(f"Expires: {expiration}")
         else:
             col1.caption("No expiration")
+
+        # Per-user show_details toggle (only visible when the global setting is enabled)
+        if global_show_details:
+            toggle_label = "Details: ON" if user_show_details else "Details: OFF"
+            toggle_help = "User can see full event details" if user_show_details else "User sees anonymized events (Busy/Free)"
+            if col1.button(toggle_label, key=f"toggle_details_{username}", help=toggle_help):
+                if update_user_show_details(username, not user_show_details):
+                    st.rerun()
 
         # Expiry date/time management UI
         with col3:
@@ -460,7 +484,7 @@ if pairs:
         else:
             col2.code(token)
         if col3.button(f"Ensure Links", key=f"ensure_{username}"):
-            ok, msg = ensure_token_links(token)
+            ok, msg = ensure_token_links(token, user_show_details)
             if ok:
                 st.success("Links ensured.")
                 st.rerun()

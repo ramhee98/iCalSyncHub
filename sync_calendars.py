@@ -107,6 +107,12 @@ def generate_random_filename():
     return ''.join(random.choices(string.ascii_letters + string.digits, k=64)) + '.ics'
 
 
+def get_anon_output_path(output_path):
+    """Return the path for the anonymized companion ICS file."""
+    base, ext = os.path.splitext(output_path)
+    return f"{base}_anon{ext}"
+
+
 def resolve_output_filename(config, config_path):
     """Ensure the filename is defined and saved to the configuration."""
     output_path = config.get('settings', 'output_path', fallback='./')
@@ -444,10 +450,19 @@ def sync_calendars(url_file_path, config, config_path, logger):
         if not calendar_urls:
             logger.error("No valid calendar URLs found.")
         else:
-            merged_calendar = merge_calendars(calendar_urls, retries, delay, timeout, show_details, 
+            merged_calendar = merge_calendars(calendar_urls, retries, delay, timeout, show_details,
                                              filter_by_date, past_days, future_months)
             save_calendar(merged_calendar, output_path)
             validate_calendar(output_path)
+            # When details are enabled, also generate an anonymized companion file
+            # so per-user access can be controlled without detail exposure.
+            if show_details:
+                anon_path = get_anon_output_path(output_path)
+                anon_calendar = merge_calendars(calendar_urls, retries, delay, timeout, False,
+                                               filter_by_date, past_days, future_months)
+                save_calendar(anon_calendar, anon_path)
+                validate_calendar(anon_path)
+                logger.info(f"Anonymized companion ICS saved: {os.path.basename(anon_path)}")
         logger.info(f"Sync completed in {round(time.time() - start_time, 3)} seconds.")
 
         if sync_interval == 0:
