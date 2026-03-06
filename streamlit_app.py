@@ -118,6 +118,12 @@ def render_share_button(username, ics_url, html_url):
       document.getElementById('tgLink').href   = 'https://t.me/share/url?url=' + encodeURIComponent(html) + '&text=' + encodeURIComponent('Subscribe ICS (do not download): ' + ics);
       document.getElementById('mailLink').href = 'mailto:?subject=' + encodeURIComponent(name + ' Calendar') + '&body=' + encodeURIComponent(msg);
 
+      function setHeight() {{
+        var open = document.getElementById('menu').style.display === 'block';
+        var h = open ? (36 + 6 + document.getElementById('menu').offsetHeight + 4) : 36;
+        if (window.frameElement) window.frameElement.style.height = h + 'px';
+      }}
+
       function toggleMenu() {{
         if (navigator.share) {{
           navigator.share({{ title: name + ' Calendar', text: msg }}).catch(function(){{}});
@@ -125,10 +131,12 @@ def render_share_button(username, ics_url, html_url):
         }}
         var m = document.getElementById('menu');
         m.style.display = m.style.display === 'block' ? 'none' : 'block';
+        setHeight();
       }}
 
       function copyLink() {{
         document.getElementById('menu').style.display = 'none';
+        setHeight();
         var btn = document.getElementById('shareBtn');
         function done() {{ btn.textContent = '✅ Copied!'; setTimeout(function(){{ btn.textContent = '🔗 Share'; }}, 2000); }}
         if (navigator.clipboard && window.isSecureContext) {{
@@ -148,11 +156,12 @@ def render_share_button(username, ics_url, html_url):
       document.addEventListener('click', function(e) {{
         if (!e.target.closest || (!e.target.closest('#shareBtn') && !e.target.closest('#menu'))) {{
           document.getElementById('menu').style.display = 'none';
+          setHeight();
         }}
       }});
     </script>
     """
-    components.html(share_html, height=200)
+    components.html(share_html, height=36)
 
 def _write_viewer_html_with_map(template_path, dest_path, color_map):
     """Write a copy of the viewer template to dest_path, injecting a JS color map if provided.
