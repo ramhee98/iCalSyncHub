@@ -1,21 +1,25 @@
 # iCalSyncHub
 
-iCalSyncHub is a lightweight Python tool with a Streamlit web interface that merges multiple online iCal calendars into a single .ics file, which can be hosted on a web server. Users (tokens) can be added, managed, and expired through the web UI. Designed for simplicity and automation, it periodically updates the merged calendar at a configurable interval.
+iCalSyncHub is a lightweight Python tool with a Streamlit web interface that merges multiple online iCal calendars into a single `.ics` file, which can be hosted on a web server. Users (tokens) can be added, managed, and expired through the web UI. Designed for simplicity and automation, it periodically updates the merged calendar at a configurable interval.
 
 ## Features
 - **Multi-Calendar Support**: Combine events from two or more iCal calendars into one.
 - **Automatic Syncing**: Automatically updates the merged calendar at a specified interval.
 - **Date Range Filtering**: Optionally filter events to keep only a configurable time window (e.g., past 14 days and next 2 months).
-- **Custom Configuration**: Use a simple `.ini` file to configure calendar URLs, output location, and sync frequency.
+- **Custom Configuration**: Use a simple `.ini` file to configure calendar URLs, output location, sync frequency, and more.
 - **Portable Output**: Generates a standard `.ics` file compatible with popular calendar apps like Google Calendar, Outlook, and Apple Calendar.
+- **HTML Calendar Viewer**: Each token automatically generates a shareable HTML viewer page powered by FullCalendar, so users can view events in a browser without importing the ICS.
+- **Per-User Detail Control**: When `show_details = true` globally, each user token can independently be set to show full event details or anonymized availability (Busy/Free). An anonymized companion ICS is automatically generated alongside the main file.
+- **Token Expiry**: Tokens can have an optional expiration date/time. Expired tokens are automatically cleaned up (symlinks and viewer pages removed) on UI refresh and at the start of each sync loop.
 - **Error Handling**: Resilient to network errors or invalid calendar formats.
-- **Token Removal**: Tokens and their symlinks can be removed manually at any time, or automatically when a token expires.
-## Token Removal
 
-Tokens and their associated symlinks can be removed in two ways:
+## Token Management
 
-- **Manual Removal**: You can remove a user/token at any time using the Streamlit app UI. This will also remove the corresponding symlink from the output directory.
-- **Automatic Removal on Expiry**: When a token expires, its symlink is automatically removed by both the Streamlit app (on UI refresh) and the sync_calendars.py script (at the start of each sync loop).
+Tokens and their associated symlinks can be managed in several ways:
+
+- **Manual Removal**: Remove a user/token at any time via the Streamlit app UI. The corresponding `.ics` symlink and `.html` viewer page are also removed.
+- **Automatic Removal on Expiry**: When a token expires, its symlink and viewer page are automatically removed by both the Streamlit app (on UI refresh) and the `sync_calendars.py` script (at the start of each sync loop).
+- **Ensure Links**: Use the "Ensure Links" button per user, or "Ensure Links for All Users" to recreate missing `.ics` symlinks and `.html` viewer pages in bulk.
 
 This ensures your output directory only contains links for active tokens.
 
@@ -159,25 +163,30 @@ streamlit run streamlit_app.py
 
 By default, the Streamlit app will be available at [http://localhost:8501](http://localhost:8501) (or `http://<your-server-ip>:8501` for remote access). You can change the port with `--server.port <port>` if needed.
 
+![Token Management UI](img/token-management.png)
+
 
 #### Features of the Streamlit app:
 - Add/remove users, each with a unique token.
-- For each token, a public .ics link is generated (e.g., `https://yourdomain.com/<token>.ics`).
+- For each token, a public `.ics` link is generated (e.g., `https://yourdomain.com/<token>.ics`).
 - The app automatically creates a symlink for each token in the output directory (e.g., `/var/www/html/<token>.ics`), pointing to the merged calendar file. This makes each link immediately accessible and shareable. Additionally, a static HTML viewer is created as `/var/www/html/<token>.html` so users can view the calendar online without importing the ICS.
 - Tokens can have an optional expiration date/time. Expired tokens are marked in the UI and their symlinks and viewer pages are automatically removed.
 - You can edit, add, or remove the expiry date for any token directly in the Streamlit app UI. When an expiry is set or changed to a future date, or removed (no expiry), the symlink is automatically recreated if it was previously removed due to expiry.
 - The UI displays the expiry status for each token (e.g., EXPIRED, EXPIRES TODAY, EXPIRES SOON, or active).
-- All token creation, deletion, and expiry changes are logged to the main log file, including username, token, and expiry details.
+- **Per-user `show_details` toggle**: When `show_details = true` globally, each user can independently be toggled between full event details and anonymized output (Busy/Free). Users without detail access get a symlink to an automatically generated anonymized companion ICS (`<filename>_anon.ics`).
+- **Ensure Links for All Users**: A bulk button recreates all missing `.ics` symlinks and `.html` viewer pages in one step.
+- All token creation, deletion, and expiry/detail changes are logged to the main log file, including username, token, and relevant details.
 
 **Note:**
-- All token-based .ics links point to the same merged calendar file unless you implement per-user customization.
+- All token-based `.ics` links point to the same merged calendar file by default, unless per-user `show_details` differs (in which case users without detail access are routed to the anonymized companion file).
+
 ### Automation of Expired Token Cleanup
 
 Symlinks for expired tokens are automatically removed both by the Streamlit app (on UI refresh) and by the sync_calendars.py script (at the start of each sync loop). This ensures your output directory only contains links for active tokens, even if the Streamlit app is not running.
 
 #### Security Considerations:
 - The Streamlit app does not require authentication by default. Anyone with access can manage tokens. Protect access as needed.
-- Tokens do not expire automatically. Remove tokens to revoke access.
+- Tokens can have an expiration date. Remove or expire tokens to revoke access.
 
 ---
 
@@ -187,11 +196,12 @@ The `config.ini` file contains the following settings:
 
 - **`output_path`**: Path where the merged calendar file will be saved.
 - **`filename`**: Optional. Predefined filename for the output calendar. If not set, a random filename will be generated.
-- **`sync_interval`**: Time interval (in seconds) between calendar syncs, if set to 0 it will only sync once.
+- **`domain`**: The public-facing domain used to build shareable calendar URLs (e.g., `https://yourdomain.com`). Used by the Streamlit app to display `.ics` and `.html` links.
+- **`sync_interval`**: Time interval (in seconds) between calendar syncs. Set to `0` to sync only once.
 - **`retries`**: Number of retry attempts if fetching a calendar fails.
 - **`delay`**: Time in seconds to wait between retry attempts.
 - **`timeout`**: Maximum time in seconds to wait for a response from a calendar URL.
-- **`show_details`**: Boolean. Set to `true` to include event details (summary, description, location, etc.) in the merged calendar. Set to `false` to anonymize events and show only availability (e.g., "Busy").
+- **`show_details`**: Boolean. Set to `true` to include event details (summary, description, location, etc.) in the merged calendar. Set to `false` to anonymize all events and show only availability (e.g., "Busy"). When `true`, an anonymized companion ICS (`<filename>_anon.ics`) is also generated to support per-user detail control.
 - **`filter_by_date`**: Boolean. Set to `true` to enable date range filtering for events. When enabled, only events within the specified time window will be included in the merged calendar. Default is `false`.
 - **`past_days`**: Number of days in the past to include when `filter_by_date` is enabled. For example, `14` includes events from the past 14 days. Default is `14`.
 - **`future_months`**: Number of months in the future to include when `filter_by_date` is enabled. For example, `2` includes events up to 2 months ahead (approximately 60 days). Default is `2`.
@@ -202,8 +212,16 @@ The `config.ini` file contains the following settings:
   - `none`: Disable logging entirely.
 - **`log_level`**: Logging level to control the verbosity of the output. Options are `DEBUG`, `INFO`, `WARNING`, `ERROR`, and `CRITICAL`. Default is `INFO`.
 - **`log_file`**: File path for the log output. Default is `icalsynchub.log`. Logs will be rotated if a file path is provided.
-- **`max_log_file_size`**: Maximum size of a single log file in MB before rotation. Default in MB is `10`.
+- **`max_log_file_size`**: Maximum size of a single log file in MB before rotation. Default is `10`.
 - **`log_backup_count`**: Number of backup log files to keep after rotation. Default is `5`.
+
+The `[colors]` section allows optional per-summary event color mappings for the HTML viewer:
+
+```ini
+[colors]
+Vacation = #f97316
+Meeting = #06b6d4
+```
 
 
 ### Example Configuration File (`config.ini`)
@@ -212,6 +230,7 @@ The `config.ini` file contains the following settings:
 [settings]
 output_path = /var/www/html/
 filename = mycal.ics
+domain = https://yourdomain.com
 sync_interval = 300
 retries = 3
 delay = 5
@@ -225,6 +244,10 @@ log_level = INFO
 log_file = icalsynchub.log
 max_log_file_size = 10
 log_backup_count = 5
+
+[colors]
+#Vacation = #f97316
+#Meeting = #06b6d4
 ```
 
 ## License
