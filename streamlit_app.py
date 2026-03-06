@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import os
 import shutil
 import random
@@ -12,6 +13,146 @@ def get_anon_output_path(output_path):
     """Return the path for the anonymized companion ICS file (mirrors sync_calendars.py)."""
     base, ext = os.path.splitext(output_path)
     return f"{base}_anon{ext}"
+
+
+def render_share_button(username, ics_url, html_url):
+    """Render a 'View online' link and a native share button side by side.
+    Falls back to an inline share menu on non-HTTPS contexts (e.g. local dev)."""
+    # Escape single quotes in values used inside JS string literals
+    safe_username = username.replace("'", "\\'")
+    safe_html_url = html_url.replace("'", "\\'")
+    safe_ics_url = ics_url.replace("'", "\\'")
+    share_html = f"""
+    <style>
+      * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+      body {{ background: transparent; font-family: "Source Sans Pro", sans-serif; }}
+      #row {{
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+      }}
+      #viewLink {{
+        font-size: 0.875rem;
+        color: rgb(49,51,63);
+        text-decoration: underline;
+        white-space: nowrap;
+      }}
+      #viewLink:hover {{ color: rgb(255,75,75); }}
+      #shareBtn {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.2rem 0.6rem;
+        background-color: transparent;
+        color: rgb(49,51,63);
+        border: 1px solid rgba(49,51,63,0.25);
+        border-radius: 0.5rem;
+        font-family: inherit;
+        font-size: 0.875rem;
+        font-weight: 400;
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+        transition: color 0.1s, border-color 0.1s;
+      }}
+      #shareBtn:hover {{ color: rgb(255,75,75); border-color: rgb(255,75,75); }}
+      #menu {{
+        display: none;
+        margin-top: 6px;
+        border: 1px solid rgba(49,51,63,0.15);
+        border-radius: 0.5rem;
+        overflow: hidden;
+        background: #fff;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      }}
+      #menu a, #menu button {{
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+        color: rgb(49,51,63);
+        background: none;
+        border: none;
+        border-radius: 0;
+        text-decoration: none;
+        cursor: pointer;
+        font-family: inherit;
+        min-height: unset;
+      }}
+      #menu a:hover, #menu button:hover {{ background: rgba(49,51,63,0.06); }}
+      #menu .divider {{ height: 1px; background: rgba(49,51,63,0.1); margin: 0; }}
+
+      @media (prefers-color-scheme: dark) {{
+        #viewLink {{ color: rgb(200,210,230); }}
+        #viewLink:hover {{ color: rgb(255,100,100); }}
+        #shareBtn {{ color: rgb(200,210,230); border-color: rgba(200,210,230,0.3); }}
+        #shareBtn:hover {{ color: rgb(255,100,100); border-color: rgb(255,100,100); }}
+        #menu {{ background: #1e2130; border-color: rgba(200,210,230,0.15); box-shadow: 0 2px 10px rgba(0,0,0,0.4); }}
+        #menu a, #menu button {{ color: rgb(200,210,230); }}
+        #menu a:hover, #menu button:hover {{ background: rgba(255,255,255,0.07); }}
+        #menu .divider {{ background: rgba(200,210,230,0.12); }}
+      }}
+    </style>
+
+    <div id='row'>
+      <a id='viewLink' href='{safe_html_url}' target='_blank'>View online</a>
+      <button id='shareBtn' onclick='toggleMenu()'>Share</button>
+    </div>
+    <div id='menu'>
+      <a id='waLink' href='#' target='_blank'>💬 WhatsApp</a>
+      <a id='tgLink' href='#' target='_blank'>✈️ Telegram</a>
+      <a id='mailLink' href='#' target='_blank'>📧 Email</a>
+      <div class='divider'></div>
+      <button onclick='copyLink()'>📋 Copy link</button>
+    </div>
+
+    <script>
+      var ics  = '{safe_ics_url}';
+      var html = '{safe_html_url}';
+      var name = '{safe_username}';
+      var msg  = 'View my calendar: ' + html + '\\n\\nSubscribe ICS (do not download): ' + ics;
+
+      document.getElementById('waLink').href   = 'https://wa.me/?text=' + encodeURIComponent(msg);
+      document.getElementById('tgLink').href   = 'https://t.me/share/url?url=' + encodeURIComponent(html) + '&text=' + encodeURIComponent('Subscribe ICS (do not download): ' + ics);
+      document.getElementById('mailLink').href = 'mailto:?subject=' + encodeURIComponent(name + ' Calendar') + '&body=' + encodeURIComponent(msg);
+
+      function toggleMenu() {{
+        if (navigator.share) {{
+          navigator.share({{ title: name + ' Calendar', text: msg }}).catch(function(){{}});
+          return;
+        }}
+        var m = document.getElementById('menu');
+        m.style.display = m.style.display === 'block' ? 'none' : 'block';
+      }}
+
+      function copyLink() {{
+        document.getElementById('menu').style.display = 'none';
+        var btn = document.getElementById('shareBtn');
+        function done() {{ btn.textContent = '✅ Copied!'; setTimeout(function(){{ btn.textContent = '🔗 Share'; }}, 2000); }}
+        if (navigator.clipboard && window.isSecureContext) {{
+          navigator.clipboard.writeText(html).then(done).catch(legacy);
+        }} else {{ legacy(); }}
+        function legacy() {{
+          var ta = document.createElement('textarea');
+          ta.value = html; ta.style.position='fixed'; ta.style.opacity='0';
+          document.body.appendChild(ta); ta.focus(); ta.select();
+          if (document.execCommand('copy')) done();
+          else prompt('Copy link:', html);
+          document.body.removeChild(ta);
+        }}
+      }}
+
+      // Close menu when clicking outside
+      document.addEventListener('click', function(e) {{
+        if (!e.target.closest || (!e.target.closest('#shareBtn') && !e.target.closest('#menu'))) {{
+          document.getElementById('menu').style.display = 'none';
+        }}
+      }});
+    </script>
+    """
+    components.html(share_html, height=200)
 
 def _write_viewer_html_with_map(template_path, dest_path, color_map):
     """Write a copy of the viewer template to dest_path, injecting a JS color map if provided.
@@ -481,7 +622,8 @@ if pairs:
             ics_url = f"{domain}/{token}.ics"
             html_url = f"{domain}/{token}.html"
             col2.code(ics_url)
-            col2.markdown(f"[View online]({html_url})")
+            with col2:
+                render_share_button(username, ics_url, html_url)
         else:
             col2.code(token)
         if col3.button(f"Ensure Links", key=f"ensure_{username}"):
