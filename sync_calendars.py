@@ -8,6 +8,7 @@ from logging.handlers import RotatingFileHandler
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, urlunparse, quote, unquote
 import random
+import re
 import string
 from pytz import UTC, all_timezones, timezone
 
@@ -212,9 +213,16 @@ def extract_timezones(calendar):
 
 
 def add_timezones_to_calendar(target_calendar, timezones):
-    """Add VTIMEZONE components to the target calendar."""
-    for timezone in timezones:
-        target_calendar.add_component(timezone)
+    """Add VTIMEZONE components to the target calendar, skipping duplicates."""
+    existing_tzids = set()
+    for component in target_calendar.walk():
+        if component.name == "VTIMEZONE":
+            existing_tzids.add(str(component.get('TZID')))
+    for tz in timezones:
+        tzid = str(tz.get('TZID'))
+        if tzid not in existing_tzids:
+            target_calendar.add_component(tz)
+            existing_tzids.add(tzid)
 
 
 def get_availability_label(event):
@@ -356,6 +364,8 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
     combined_calendar = icalendar.Calendar()
     combined_calendar.add('prodid', '-//ramhee98//iCalSyncHub//EN')
     combined_calendar.add('version', '2.0')
+    combined_calendar.add('calscale', 'GREGORIAN')
+    combined_calendar.add('method', 'PUBLISH')
 
     # Calculate date range if filtering is enabled
     start_date = None
@@ -411,8 +421,8 @@ def save_calendar(calendar, output_path):
     # Serialize the calendar
     ical_output = calendar.to_ical().decode('utf-8')
 
-    # Fix TZID quoting globally
-    ical_output = ical_output.replace('TZID="', 'TZID=').replace('"', '')
+    # Fix TZID quoting (only remove quotes around TZID values, not all quotes)
+    ical_output = re.sub(r'TZID="([^"]*)"', r'TZID=\1', ical_output)
 
     # Save the corrected data
     with open(output_path, 'w') as f:
