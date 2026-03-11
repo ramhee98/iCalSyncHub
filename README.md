@@ -18,7 +18,7 @@ iCalSyncHub is a lightweight Python tool with a Streamlit web interface that mer
 Tokens and their associated symlinks can be managed in several ways:
 
 - **Manual Removal**: Remove a user/token at any time via the Streamlit app UI. The corresponding `.ics` symlink and `.html` viewer page are also removed.
-- **Automatic Removal on Expiry**: When a token expires, its symlink and viewer page are automatically removed by both the Streamlit app (on UI refresh) and the `sync_calendars.py` script (at the start of each sync loop).
+- **Automatic Removal on Expiry**: When a token expires, its `.ics` symlink and `.html` viewer page are automatically removed by the Streamlit app (on UI refresh). The `sync_calendars.py` script removes only the `.ics` symlink at the start of each sync loop.
 - **Ensure Links**: Use the "Ensure Links" button per user, or "Ensure Links for All Users" to recreate missing `.ics` symlinks and `.html` viewer pages in bulk.
 
 This ensures your output directory only contains links for active tokens.
@@ -120,7 +120,7 @@ Notes:
 - If the fragment is empty (i.e., `#` with no text), the default summary `Busy` is used.
 - Spaces may be included directly or URL-encoded; the value will be URL-decoded before use.
 - The fragment is removed for fetching the calendar.
-- The per-URL custom summary is only applied when `show_details = false` (anonymized output).
+- When `show_details = false`, the custom summary replaces the event title entirely (e.g., `Busy [Out of Office]`). When `show_details = true`, it is appended as a label to the original event title (e.g., `Team Meeting [Out of Office]`).
 
 Custom event coloring in viewer
 
@@ -183,7 +183,7 @@ By default, the Streamlit app will be available at [http://localhost:8501](http:
 
 ### Automation of Expired Token Cleanup
 
-Symlinks for expired tokens are automatically removed both by the Streamlit app (on UI refresh) and by the sync_calendars.py script (at the start of each sync loop). This ensures your output directory only contains links for active tokens, even if the Streamlit app is not running.
+`.ics` symlinks for expired tokens are automatically removed both by the Streamlit app (on UI refresh) and by the `sync_calendars.py` script (at the start of each sync loop). The `.html` viewer page is only removed by the Streamlit app. This ensures your output directory only contains active links, even if the Streamlit app is not running.
 
 #### Security Considerations:
 - The Streamlit app does not require authentication by default. Anyone with access can manage tokens. Protect access as needed.
