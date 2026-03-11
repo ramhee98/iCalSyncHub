@@ -366,7 +366,7 @@
           }
         });
 
-        const vevents = [];
+        let vevents = [];
         comp.getAllSubcomponents('vevent').forEach(ev => {
           try {
             const e = new ICAL.Event(ev);
@@ -479,6 +479,10 @@
           }
         });
 
+        // Drop timed events with zero duration (no end or end === start) — they display misleadingly
+        const _skippedZeroDuration = vevents.filter(ev => ev.start.includes('T') && (!ev.end || ev.end === ev.start)).length;
+        if (_skippedZeroDuration > 0) vevents = vevents.filter(ev => !(ev.start.includes('T') && (!ev.end || ev.end === ev.start)));
+
         const _includedEvents = vevents.length;
 
         const calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
@@ -527,13 +531,17 @@
         calendar.render();
 
         // If any VEVENTs were skipped due to being faulty, show a small non-intrusive notice with breakdown
-        const totalSkipped = _skippedNoStart + _skippedException;
+        const totalSkipped = _skippedNoStart + _skippedException + _skippedZeroDuration;
         if (totalSkipped > 0) {
           const note = document.createElement('span');
           note.style.marginLeft = '0.75rem';
           note.style.color = '#b45309';
           note.style.fontSize = '0.9rem';
-          note.textContent = ` (skipped ${totalSkipped} events: ${_skippedNoStart} no-start, ${_skippedException} parse errors)`;
+          const parts = [];
+          if (_skippedNoStart) parts.push(`${_skippedNoStart} no-start`);
+          if (_skippedException) parts.push(`${_skippedException} parse errors`);
+          if (_skippedZeroDuration) parts.push(`${_skippedZeroDuration} zero-duration`);
+          note.textContent = ` (skipped ${totalSkipped} events: ${parts.join(', ')})`;
           infoEl.appendChild(note);
 
           // Add a details button to show inline diagnostics (so users don't need DevTools)
@@ -603,6 +611,7 @@
               included: _includedEvents,
               skipped_no_start: _skippedNoStart,
               skipped_exceptions: _skippedException,
+              skipped_zero_duration: _skippedZeroDuration,
               samples_no_start: _skippedNoStartSamples,
               samples_exceptions: _skippedExceptionSamples
             };
@@ -618,6 +627,7 @@
           console.info(`Parsed VEVENTs: total=${_totalVevents}, included=${_includedEvents}, skipped=${totalSkipped}`);
           if (_skippedNoStartSamples.length) console.info('Samples of events skipped (no start):', _skippedNoStartSamples);
           if (_skippedExceptionSamples.length) console.info('Samples of events skipped (exceptions):', _skippedExceptionSamples);
+          if (_skippedZeroDuration) console.info(`Skipped ${_skippedZeroDuration} timed events with zero duration (no DTEND or DTEND = DTSTART).`);
         }
       } catch (err) {
         document.body.innerHTML = `<div style="padding:1rem; color:#900">Error loading calendar: ${err}</div>`;
