@@ -179,6 +179,11 @@ def _write_viewer_html_with_map(template_path, dest_path, color_map):
             content = content.replace('<!--INJECT_EVENT_COLOR_MAP-->', inject)
         else:
             content = content.replace('</body>', f"{inject}</body>")
+        debug_inject = "<script>window.ICS_DEBUG = false;</script>"
+        if '<!--INJECT_DEBUG_MODE-->' in content:
+            content = content.replace('<!--INJECT_DEBUG_MODE-->', debug_inject)
+        else:
+            content = content.replace('</body>', f"{debug_inject}</body>")
         with open(dest_path, 'w') as f:
             f.write(content)
     except Exception:

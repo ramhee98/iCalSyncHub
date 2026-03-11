@@ -64,6 +64,7 @@
   <div id="calendar"></div>
 
   <!--INJECT_EVENT_COLOR_MAP-->
+  <!--INJECT_DEBUG_MODE-->
 
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/ical.js@1.4.0/build/ical.min.js"></script>
@@ -532,7 +533,7 @@
 
         // If any VEVENTs were skipped due to being faulty, show a small non-intrusive notice with breakdown
         const totalSkipped = _skippedNoStart + _skippedException + _skippedZeroDuration;
-        if (totalSkipped > 0) {
+        if (window.ICS_DEBUG !== false && totalSkipped > 0) {
           const note = document.createElement('span');
           note.style.marginLeft = '0.75rem';
           note.style.color = '#b45309';
