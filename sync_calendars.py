@@ -266,6 +266,30 @@ def get_event_date(event):
     return event_dt
 
 
+def is_recurring_event(event):
+    """Check if an event is recurring (has RRULE or RDATE)."""
+    return 'RRULE' in event or 'RDATE' in event
+
+
+def get_rrule_until(event):
+    """Extract the UNTIL date from an RRULE, if present. Returns a UTC datetime or None."""
+    if 'RRULE' not in event:
+        return None
+    rrule = event['RRULE']
+    until_list = rrule.get('UNTIL')
+    if not until_list:
+        return None
+    until = until_list[0] if isinstance(until_list, list) else until_list
+    from datetime import date
+    if isinstance(until, datetime):
+        if until.tzinfo is None:
+            return until.replace(tzinfo=UTC)
+        return until.astimezone(UTC)
+    elif isinstance(until, date):
+        return datetime.combine(until, datetime.max.time()).replace(tzinfo=UTC)
+    return None
+
+
 def should_include_event(event, start_date, end_date):
     """
     Determine if an event should be included based on the date range.
@@ -278,6 +302,15 @@ def should_include_event(event, start_date, end_date):
     Returns:
         bool: True if the event should be included, False otherwise
     """
+    # Recurring events should always be included unless they have definitively ended
+    if is_recurring_event(event):
+        until = get_rrule_until(event)
+        if until is not None and until < start_date:
+            logger.debug("Recurring event excluded: RRULE UNTIL is before date range")
+            return False
+        logger.debug("Recurring event included")
+        return True
+
     event_date = get_event_date(event)
     
     if event_date is None:
@@ -289,7 +322,7 @@ def should_include_event(event, start_date, end_date):
     if start_date <= event_date <= end_date:
         return True
     
-    # For recurring events, check if DTEND exists and spans into our range
+    # Check if DTEND exists and the event spans into our range
     if 'DTEND' in event:
         dt_end = event['DTEND'].dt
         if isinstance(dt_end, datetime):

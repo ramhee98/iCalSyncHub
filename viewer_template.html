@@ -323,70 +323,161 @@
         }
         // 'comp' variable is defined (or null if both parses failed); we keep using that as before.
 
-        // Build VEVENTs safely: skip faulty events and collect diagnostic info
+        // Build VEVENTs safely: skip faulty events and collect diagnostic info.
+        // Recurring events (RRULE/RDATE) are expanded into individual occurrences.
         const _totalVevents = comp.getAllSubcomponents('vevent').length;
         let _skippedNoStart = 0;
         let _skippedException = 0;
         const _skippedNoStartSamples = [];
         const _skippedExceptionSamples = [];
 
-        const vevents = comp.getAllSubcomponents('vevent').map(ev => {
+        // Helper: resolve color for a summary string
+        function resolveColor(ev, origSummary) {
+          let color = null;
+          if (typeof window.EVENT_COLOR_MAP !== 'undefined' && origSummary) {
+            const _labelMatch = origSummary.match(/\[([^\]]+)\]$/);
+            const _label = _labelMatch ? _labelMatch[1] : null;
+            color = window.EVENT_COLOR_MAP[origSummary]
+              || window.EVENT_COLOR_MAP[origSummary.toLowerCase()]
+              || (_label ? window.EVENT_COLOR_MAP[_label] || window.EVENT_COLOR_MAP[_label.toLowerCase()] : null)
+              || null;
+          }
+          if (!color) {
+            color = ev.getFirstPropertyValue('x-color') || ev.getFirstPropertyValue('color') || null;
+          }
+          return color;
+        }
+
+        // Expansion window: 6 months before and after today
+        const _expandStart = ICAL.Time.fromJSDate(new Date(Date.now() - 180*86400000));
+        const _expandEnd   = ICAL.Time.fromJSDate(new Date(Date.now() + 365*86400000));
+        // Maximum occurrences per recurring event to avoid runaway loops
+        const _maxOccurrences = 730;
+
+        // Collect RECURRENCE-ID overrides keyed by UID so we can apply them during expansion
+        const _overridesByUid = {};
+        comp.getAllSubcomponents('vevent').forEach(ev => {
+          const recId = ev.getFirstPropertyValue('recurrence-id');
+          if (recId) {
+            const uid = ev.getFirstPropertyValue('uid') || '';
+            if (!_overridesByUid[uid]) _overridesByUid[uid] = {};
+            const key = recId.toICALString ? recId.toICALString() : String(recId);
+            _overridesByUid[uid][key] = ev;
+          }
+        });
+
+        const vevents = [];
+        comp.getAllSubcomponents('vevent').forEach(ev => {
           try {
             const e = new ICAL.Event(ev);
 
-            // Ensure we have a valid start date; if not, treat as faulty and skip (record sample)
-            const start = e.startDate ? e.startDate.toJSDate().toISOString() : null;
-            if (!start) {
+            // Skip RECURRENCE-ID overrides here – they are handled during expansion
+            if (ev.getFirstPropertyValue('recurrence-id')) return;
+
+            // Ensure we have a valid start date
+            if (!e.startDate) {
               _skippedNoStart++;
               const uid = ev.getFirstPropertyValue('uid') || '(no-uid)';
               const summary = (ev.getFirstPropertyValue('x-orig-summary') || e.summary || '').toString();
               if (_skippedNoStartSamples.length < 10) _skippedNoStartSamples.push({ uid, summary });
-              return null;
+              return;
             }
 
-            // Prefer original summary preserved by the anonymizer; fall back to event summary
             const origSummary = ev.getFirstPropertyValue('x-orig-summary') || e.summary || '';
-
-            // Resolve color from injected EVENT_COLOR_MAP.
-            // Try: 1) full summary exact, 2) full summary lowercase,
-            // 3) bracketed label suffix e.g. "Busy [Work]" → "Work" exact, 4) same lowercase.
-            let color = null;
-            if (typeof window.EVENT_COLOR_MAP !== 'undefined' && origSummary) {
-              const _labelMatch = origSummary.match(/\[([^\]]+)\]$/);
-              const _label = _labelMatch ? _labelMatch[1] : null;
-              color = window.EVENT_COLOR_MAP[origSummary]
-                || window.EVENT_COLOR_MAP[origSummary.toLowerCase()]
-                || (_label ? window.EVENT_COLOR_MAP[_label] || window.EVENT_COLOR_MAP[_label.toLowerCase()] : null)
-                || null;
-            }
-
-            // fallback to VEVENT property X-COLOR or COLOR
-            if (!color) {
-              color = ev.getFirstPropertyValue('x-color') || ev.getFirstPropertyValue('color') || null;
-            }
-
+            const color = resolveColor(ev, origSummary);
             const backgroundColor = color || null;
             const textColor = color ? readableTextColor(color) : null;
 
-            // FullCalendar accepts ISO strings and color properties
-            return {
-              title: e.summary || '',
-              start: start,
-              end: e.endDate ? e.endDate.toJSDate().toISOString() : null,
-              backgroundColor: backgroundColor,
-              borderColor: backgroundColor,
-              textColor: textColor
-            };
+            // Check if this event is recurring
+            const rruleProp = ev.getFirstPropertyValue('rrule');
+            const rdateProp = ev.getFirstProperty('rdate');
+            const isRecurring = !!(rruleProp || rdateProp);
+
+            if (isRecurring) {
+              // Expand recurring event into individual occurrences
+              try {
+                const duration = e.duration; // ICAL.Duration
+                const iter = e.iterator();
+                let count = 0;
+                let next;
+                while ((next = iter.next()) && count < _maxOccurrences) {
+                  // Stop expanding past the window
+                  if (next.compare(_expandEnd) > 0) break;
+                  count++;
+                  // Skip occurrences before the window
+                  if (next.compare(_expandStart) < 0) continue;
+
+                  // Check if this occurrence has a RECURRENCE-ID override
+                  const uid = ev.getFirstPropertyValue('uid') || '';
+                  const overrides = _overridesByUid[uid];
+                  const occKey = next.toICALString ? next.toICALString() : String(next);
+                  if (overrides && overrides[occKey]) {
+                    // Use the override event instead
+                    const ovEv = overrides[occKey];
+                    const ovE = new ICAL.Event(ovEv);
+                    const ovSummary = ovEv.getFirstPropertyValue('x-orig-summary') || ovE.summary || '';
+                    const ovColor = resolveColor(ovEv, ovSummary);
+                    const ovBg = ovColor || null;
+                    const ovText = ovColor ? readableTextColor(ovColor) : null;
+                    vevents.push({
+                      title: ovE.summary || '',
+                      start: ovE.startDate ? ovE.startDate.toJSDate().toISOString() : next.toJSDate().toISOString(),
+                      end: ovE.endDate ? ovE.endDate.toJSDate().toISOString() : null,
+                      backgroundColor: ovBg,
+                      borderColor: ovBg,
+                      textColor: ovText
+                    });
+                    continue;
+                  }
+
+                  // Regular occurrence
+                  const occStart = next.toJSDate().toISOString();
+                  let occEnd = null;
+                  if (duration) {
+                    const endTime = next.clone();
+                    endTime.addDuration(duration);
+                    occEnd = endTime.toJSDate().toISOString();
+                  }
+                  vevents.push({
+                    title: e.summary || '',
+                    start: occStart,
+                    end: occEnd,
+                    backgroundColor: backgroundColor,
+                    borderColor: backgroundColor,
+                    textColor: textColor
+                  });
+                }
+              } catch (recurErr) {
+                // If recurrence expansion fails, fall back to single instance
+                console.warn('Recurrence expansion failed, using single instance:', e.summary, recurErr);
+                vevents.push({
+                  title: e.summary || '',
+                  start: e.startDate.toJSDate().toISOString(),
+                  end: e.endDate ? e.endDate.toJSDate().toISOString() : null,
+                  backgroundColor: backgroundColor,
+                  borderColor: backgroundColor,
+                  textColor: textColor
+                });
+              }
+            } else {
+              // Non-recurring event: add as single instance
+              vevents.push({
+                title: e.summary || '',
+                start: e.startDate.toJSDate().toISOString(),
+                end: e.endDate ? e.endDate.toJSDate().toISOString() : null,
+                backgroundColor: backgroundColor,
+                borderColor: backgroundColor,
+                textColor: textColor
+              });
+            }
           } catch (err) {
-            // Non-fatal: skip this VEVENT and record sample for debugging
             _skippedException++;
             const uid = ev.getFirstPropertyValue('uid') || '(no-uid)';
             const summary = (ev.getFirstPropertyValue('x-orig-summary') || ev.getFirstPropertyValue('summary') || '').toString();
             if (_skippedExceptionSamples.length < 10) _skippedExceptionSamples.push({ uid, summary, error: (err && err.message) || String(err) });
             console.warn('Skipping faulty VEVENT:', uid, summary, err);
-            return null;
           }
-        }).filter(e => e && e.start);
+        });
 
         const _includedEvents = vevents.length;
 
