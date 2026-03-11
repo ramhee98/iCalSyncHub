@@ -259,8 +259,25 @@ def load_tokens():
         return pairs
 
 def save_tokens(pairs):
+    def _sort_key(entry):
+        show_details_str = (entry[3] if len(entry) > 3 else "false").lower()
+        details_key = 0 if show_details_str == "true" else 1
+        username_key = entry[0].lower()
+        expiration = entry[2]
+        if not expiration:
+            return (details_key, 1, datetime.max, username_key)
+        try:
+            exp_dt = datetime.fromisoformat(expiration)
+            if datetime.now() > exp_dt:
+                return (details_key, 3, exp_dt, username_key)   # expired: bottom, oldest first
+            else:
+                return (details_key, 2, exp_dt, username_key)   # future expiry: soonest first
+        except Exception:
+            return (details_key, 1, datetime.max, username_key)
+
+    sorted_pairs = sorted(pairs, key=_sort_key)
     with open(TOKENS_FILE, "w") as f:
-        for entry in pairs:
+        for entry in sorted_pairs:
             username, token, expiration = entry[0], entry[1], entry[2]
             show_details_str = entry[3] if len(entry) > 3 else "false"
             f.write(f"{username}:{token}:{expiration}:{show_details_str}\n")
