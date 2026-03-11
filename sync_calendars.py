@@ -421,8 +421,42 @@ def save_calendar(calendar, output_path):
     # Serialize the calendar
     ical_output = calendar.to_ical().decode('utf-8')
 
+    # Unfold continuation lines (CRLF + space/tab) so we can process full logical lines
+    ical_output = re.sub(r'\r?\n[ \t]', '', ical_output)
+
     # Fix TZID quoting (only remove quotes around TZID values, not all quotes)
     ical_output = re.sub(r'TZID="([^"]*)"', r'TZID=\1', ical_output)
+
+    # Split comma-separated EXDATE values into separate lines (Outlook compatibility)
+    def split_exdates(match):
+        prefix = match.group(1)  # e.g. "EXDATE;TZID=Europe/Zurich:"
+        dates = match.group(2).split(',')
+        return '\r\n'.join(f'{prefix}{d}' for d in dates)
+
+    ical_output = re.sub(
+        r'(EXDATE[^:]*:)([^\r\n]*,[^\r\n]*)',
+        split_exdates,
+        ical_output
+    )
+
+    # Re-fold lines longer than 75 octets per RFC 5545
+    lines = ical_output.splitlines()
+    folded_lines = []
+    for line in lines:
+        encoded = line.encode('utf-8')
+        if len(encoded) <= 75:
+            folded_lines.append(line)
+        else:
+            # First chunk is 75 octets, continuation chunks are 74 (plus leading space)
+            first = encoded[:75].decode('utf-8', errors='ignore')
+            folded_lines.append(first)
+            remaining = encoded[75:]
+            while remaining:
+                chunk = remaining[:74].decode('utf-8', errors='ignore')
+                folded_lines.append(' ' + chunk)
+                remaining = remaining[74:]
+
+    ical_output = '\r\n'.join(folded_lines) + '\r\n'
 
     # Save the corrected data
     with open(output_path, 'w') as f:
