@@ -473,6 +473,66 @@ def validate_calendar(file_path):
         logger.error(f"Validation of exported ICS file failed: {e}")
 
 
+def ensure_all_user_ics_symlinks(output_path, show_details):
+    """Re-route every non-expired user ICS symlink so it points to the correct
+    target (main or anonymized companion) based on the current global and
+    per-user show_details settings.  Called after each sync so changes to
+    config.ini or the Streamlit toggle are automatically picked up without
+    requiring a manual 'Ensure Links' action."""
+    output_dir = os.path.dirname(output_path)
+    main_target = output_path
+    anon_target = get_anon_output_path(output_path)
+    tokens_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'user_tokens.txt')
+    if not os.path.exists(tokens_file):
+        return
+    with open(tokens_file, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            # Format: username:token:expiration:show_details
+            # The expiration contains colons (ISO 8601), so split to 3 parts
+            # only, then peel the trailing :true/:false for show_details.
+            parts = line.split(':', 2)
+            if len(parts) < 2:
+                continue
+            token = parts[1]
+            rest = parts[2] if len(parts) > 2 else ''
+            show_details_str = 'false'
+            if rest.lower().endswith(':true'):
+                show_details_str = 'true'
+                rest = rest[:-5]
+            elif rest.lower().endswith(':false'):
+                show_details_str = 'false'
+                rest = rest[:-6]
+            expiration = rest
+            user_show_details = show_details_str == 'true'
+            # Skip expired tokens
+            if expiration:
+                try:
+                    if datetime.now() > datetime.fromisoformat(expiration):
+                        continue
+                except Exception:
+                    pass
+            # Route to anon companion only when global details are on but this
+            # user has no detail access; otherwise always use the main file.
+            target = anon_target if (show_details and not user_show_details) else main_target
+            link_name = os.path.join(output_dir, f"{token}.ics")
+            try:
+                needs_update = False
+                if os.path.islink(link_name):
+                    if os.readlink(link_name) != target:
+                        os.remove(link_name)
+                        needs_update = True
+                elif not os.path.exists(link_name):
+                    needs_update = True
+                if needs_update:
+                    os.symlink(target, link_name)
+                    logger.info(f"Re-routed ICS symlink for token '{token}' → {os.path.basename(target)}")
+            except Exception as e:
+                logger.warning(f"Failed to update ICS symlink for token '{token}': {e}")
+
+
 def sync_calendars(url_file_path, config, config_path, logger):
     """Sync calendars as per the configuration."""
     output_path = resolve_output_filename(config, config_path)
@@ -495,27 +555,34 @@ def sync_calendars(url_file_path, config, config_path, logger):
         tokens_file = os.path.join(os.path.dirname(__file__), 'user_tokens.txt')
         if not os.path.exists(tokens_file):
             return
+        output_dir = os.path.dirname(output_path)
         with open(tokens_file, 'r') as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
+                # Format: username:token:expiration:show_details
+                # The expiration contains colons, so split to 3 parts then
+                # strip the trailing :true/:false for show_details.
                 parts = line.split(':', 2)
-                if len(parts) == 2:
-                    username, token = parts
-                    expiration = ''
-                elif len(parts) == 3:
-                    username, token, expiration = parts
-                else:
+                if len(parts) < 2:
                     continue
+                token = parts[1]
+                rest = parts[2] if len(parts) > 2 else ''
+                if rest.lower().endswith(':true'):
+                    rest = rest[:-5]
+                elif rest.lower().endswith(':false'):
+                    rest = rest[:-6]
+                expiration = rest
                 if expiration:
                     try:
                         exp_dt = datetime.fromisoformat(expiration)
                         if datetime.now() > exp_dt:
-                            link_name = os.path.join(os.path.dirname(output_path), f"{token}.ics")
-                            if os.path.islink(link_name) or os.path.exists(link_name):
-                                os.remove(link_name)
-                                logger.info(f"Removed expired token symlink: {link_name}")
+                            for ext in ('.ics', '.html'):
+                                link = os.path.join(output_dir, f"{token}{ext}")
+                                if os.path.islink(link) or os.path.exists(link):
+                                    os.remove(link)
+                                    logger.info(f"Removed expired token file: {link}")
                     except Exception:
                         continue
 
@@ -540,6 +607,9 @@ def sync_calendars(url_file_path, config, config_path, logger):
                 save_calendar(anon_calendar, anon_path)
                 validate_calendar(anon_path)
                 logger.info(f"Anonymized companion ICS saved: {os.path.basename(anon_path)}")
+            # Re-route per-user ICS symlinks so any change to global or per-user
+            # show_details is applied automatically on the next sync cycle.
+            ensure_all_user_ics_symlinks(output_path, show_details)
         logger.info(f"Sync completed in {round(time.time() - start_time, 3)} seconds.")
 
         if sync_interval == 0:
