@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import requests
 import icalendar
 import configparser
@@ -378,14 +379,26 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
 
     total_events = 0
     filtered_events = 0
+    source_stats = []
 
     for url, custom_summary in calendar_entries:
+        src_stat = {
+            'url': url,
+            'custom_summary': custom_summary,
+            'status': 'error',
+            'response_time': 0.0,
+            'event_count': 0,
+            'error': None,
+        }
+        fetch_start = time.time()
         calendar_data = fetch_calendar(url, retries, delay, timeout)
+        src_stat['response_time'] = round(time.time() - fetch_start, 3)
         if calendar_data:
             try:
                 calendar = icalendar.Calendar.from_ical(calendar_data)
                 timezones = extract_timezones(calendar)
                 add_timezones_to_calendar(combined_calendar, timezones)
+                src_event_count = 0
                 for component in calendar.walk():
                     if component.name == "VEVENT":
                         total_events += 1
@@ -395,6 +408,7 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
                             filtered_events += 1
                             continue
                         
+                        src_event_count += 1
                         label = f" [{custom_summary}]" if custom_summary else ""
                         if not show_details:
                             status = get_availability_label(component)
@@ -406,13 +420,19 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
                             component.add('SUMMARY', f"{existing}{label}")
                         normalize_event_timezone(component)
                         combined_calendar.add_component(component)
+                src_stat['status'] = 'ok'
+                src_stat['event_count'] = src_event_count
             except ValueError as e:
                 logger.error(f"Error parsing calendar from {url}: {e}")
+                src_stat['error'] = str(e)
+        else:
+            src_stat['error'] = 'Failed to fetch after all retries'
+        source_stats.append(src_stat)
 
     if filter_by_date:
         logger.info(f"Processed {total_events} events, filtered out {filtered_events}, kept {total_events - filtered_events}")
 
-    return combined_calendar
+    return combined_calendar, source_stats
 
 
 @measure_time(log_level='DEBUG')
@@ -533,6 +553,54 @@ def ensure_all_user_ics_symlinks(output_path, show_details):
                 logger.warning(f"Failed to update ICS symlink for token '{token}': {e}")
 
 
+SYNC_STATUS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sync_status.json')
+MAX_HISTORY_ENTRIES = 50
+
+
+def save_sync_status(source_stats, sync_duration):
+    """Persist per-source fetch results and append to sync history."""
+    # Load existing data to preserve history
+    existing = {}
+    if os.path.exists(SYNC_STATUS_FILE):
+        try:
+            with open(SYNC_STATUS_FILE, 'r') as f:
+                existing = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+
+    history = existing.get('history', [])
+
+    sources_ok = sum(1 for s in source_stats if s['status'] == 'ok')
+    sources_failed = sum(1 for s in source_stats if s['status'] != 'ok')
+    total_events = sum(s['event_count'] for s in source_stats)
+
+    now_iso = datetime.now().isoformat(timespec='seconds')
+
+    history.append({
+        'timestamp': now_iso,
+        'duration': sync_duration,
+        'total_events': total_events,
+        'sources_ok': sources_ok,
+        'sources_failed': sources_failed,
+    })
+    # Keep only the most recent entries
+    history = history[-MAX_HISTORY_ENTRIES:]
+
+    status = {
+        'last_sync': now_iso,
+        'sync_duration': sync_duration,
+        'total_events': total_events,
+        'sources': source_stats,
+        'history': history,
+    }
+
+    try:
+        with open(SYNC_STATUS_FILE, 'w') as f:
+            json.dump(status, f, indent=2)
+    except OSError as e:
+        logger.warning(f"Failed to write sync status file: {e}")
+
+
 def sync_calendars(url_file_path, config, config_path, logger):
     """Sync calendars as per the configuration."""
     output_path = resolve_output_filename(config, config_path)
@@ -594,7 +662,7 @@ def sync_calendars(url_file_path, config, config_path, logger):
         if not calendar_urls:
             logger.error("No valid calendar URLs found.")
         else:
-            merged_calendar = merge_calendars(calendar_urls, retries, delay, timeout, show_details,
+            merged_calendar, source_stats = merge_calendars(calendar_urls, retries, delay, timeout, show_details,
                                              filter_by_date, past_days, future_months)
             save_calendar(merged_calendar, output_path)
             validate_calendar(output_path)
@@ -602,7 +670,7 @@ def sync_calendars(url_file_path, config, config_path, logger):
             # so per-user access can be controlled without detail exposure.
             if show_details:
                 anon_path = get_anon_output_path(output_path)
-                anon_calendar = merge_calendars(calendar_urls, retries, delay, timeout, False,
+                anon_calendar, _ = merge_calendars(calendar_urls, retries, delay, timeout, False,
                                                filter_by_date, past_days, future_months)
                 save_calendar(anon_calendar, anon_path)
                 validate_calendar(anon_path)
@@ -610,6 +678,9 @@ def sync_calendars(url_file_path, config, config_path, logger):
             # Re-route per-user ICS symlinks so any change to global or per-user
             # show_details is applied automatically on the next sync cycle.
             ensure_all_user_ics_symlinks(output_path, show_details)
+            # Save sync status for the health dashboard
+            sync_duration = round(time.time() - start_time, 3)
+            save_sync_status(source_stats, sync_duration)
         logger.info(f"Sync completed in {round(time.time() - start_time, 3)} seconds.")
 
         if sync_interval == 0:

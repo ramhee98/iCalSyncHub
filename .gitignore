@@ -3,6 +3,7 @@ calendar_urls.txt
 config.ini
 *.ics
 user_tokens.txt
+sync_status.json
 
 # Ignore virtual environment folder
 .venv/

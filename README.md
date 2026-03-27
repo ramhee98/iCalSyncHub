@@ -11,6 +11,7 @@ iCalSyncHub is a lightweight Python tool with a Streamlit web interface that mer
 - **HTML Calendar Viewer**: Each token automatically generates a shareable HTML viewer page powered by FullCalendar, so users can view events in a browser without importing the ICS.
 - **Per-User Detail Control**: When `show_details = true` globally, each user token can independently be set to show full event details or anonymized availability (Busy/Free). An anonymized companion ICS is automatically generated alongside the main file.
 - **Token Expiry**: Tokens can have an optional expiration date/time. Expired tokens are automatically cleaned up (symlinks and viewer pages removed) on UI refresh and at the start of each sync loop.
+- **Sync Health Dashboard**: A dedicated Streamlit page showing per-source fetch status (success/failure, response time, event count), summary metrics, failure alerts, and sync history charts (duration, events, source status over time).
 - **Error Handling**: Resilient to network errors or invalid calendar formats.
 
 ## Token Management
@@ -176,6 +177,7 @@ By default, the Streamlit app will be available at [http://localhost:8501](http:
 - **Per-user `show_details` toggle**: When `show_details = true` globally, each user can independently be toggled between full event details and anonymized output (Busy/Free). Users without detail access get a symlink to an automatically generated anonymized companion ICS (`<filename>_anon.ics`).
 - **Share button**: Each token card shows a **Share** button next to the "View online" link. On mobile (HTTPS), it triggers the native OS share sheet (WhatsApp, Messages, etc.). On local/non-HTTPS connections it opens an inline menu with WhatsApp, Telegram, Email, and Copy link options. Dark mode is fully supported.
 - **Ensure Links for All Users**: A bulk button recreates all missing `.ics` symlinks and `.html` viewer pages in one step.
+- **Sync Health Dashboard** (second page): Displays per-source fetch status (green/red indicators, response time, event count, errors), summary metrics (last sync time, duration, total events, OK/failed sources), failure alerts, and sync history charts with tabs for duration, event count, and source status over time. Data is recorded automatically in `sync_status.json` after each sync cycle.
 - All token creation, deletion, and expiry/detail changes are logged to the main log file, including username, token, and relevant details.
 
 **Note:**
