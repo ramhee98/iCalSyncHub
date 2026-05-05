@@ -541,13 +541,19 @@ def ensure_all_user_ics_symlinks(output_path, show_details):
                 rest = rest[:-6]
             expiration = rest
             user_show_details = show_details_str == 'true'
-            # Skip expired tokens
+            # Skip expired tokens. If the expiration value is unparseable we
+            # treat the token as expired (fail-closed) and warn, rather than
+            # silently routing the user as if they had a valid token.
             if expiration:
                 try:
                     if datetime.now() > datetime.fromisoformat(expiration):
                         continue
                 except Exception:
-                    pass
+                    logger.warning(
+                        f"Token '{token}' has unparseable expiration "
+                        f"'{expiration}'; treating as expired."
+                    )
+                    continue
             # Route to anon companion only when global details are on but this
             # user has no detail access; otherwise always use the main file.
             target = anon_target if (show_details and not user_show_details) else main_target
