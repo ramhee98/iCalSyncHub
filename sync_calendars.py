@@ -260,15 +260,15 @@ def get_event_date(event):
     
     dt = event['DTSTART'].dt
     
-    # Handle date-only events (convert to datetime)
+    # Handle date-only events (convert to datetime).
+    # All-day events represent the entire day, so use end-of-day (23:59:59)
+    # to stay consistent with get_rrule_until() and avoid off-by-one filtering.
     if isinstance(dt, datetime):
-        # If it's already a datetime, use it
         event_dt = dt
     else:
-        # If it's a date, convert to datetime at midnight
         from datetime import date
         if isinstance(dt, date):
-            event_dt = datetime.combine(dt, datetime.min.time())
+            event_dt = datetime.combine(dt, datetime.max.time())
         else:
             return None
     
