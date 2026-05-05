@@ -210,6 +210,50 @@ def normalize_event_timezone(event):
                 logger.warning(f"Error normalizing timezone for {time_key}: {e}")
 
 
+def detect_event_timezone_issue(event, source_url, known_tzids):
+    """Inspect a VEVENT and return a dict describing a TZ issue, or None.
+
+    Issues detected:
+      - 'floating': DTSTART/DTEND is a naive datetime (no TZID, no Z suffix).
+        These render at a different wall-clock time depending on the viewer's
+        local timezone, which is almost never what the author intended.
+      - 'unknown_tzid': DTSTART/DTEND references a TZID that is neither part
+        of the IANA database nor declared via VTIMEZONE in the source file.
+        Most clients fall back to floating time silently.
+    """
+    for time_key in ('DTSTART', 'DTEND'):
+        if time_key not in event:
+            continue
+        prop = event[time_key]
+        tzid = prop.params.get('TZID')
+        dt = prop.dt
+        # All-day events use plain dates and are timezone-agnostic; skip them.
+        if not isinstance(dt, datetime):
+            continue
+        if tzid:
+            tzid_str = str(tzid)
+            if tzid_str not in all_timezones and tzid_str not in known_tzids:
+                return {
+                    'type': 'unknown_tzid',
+                    'time_key': time_key,
+                    'tzid': tzid_str,
+                    'uid': str(event.get('UID', '')),
+                    'summary': str(event.get('SUMMARY', '')),
+                    'source_url': source_url,
+                }
+        else:
+            if dt.tzinfo is None:
+                return {
+                    'type': 'floating',
+                    'time_key': time_key,
+                    'tzid': None,
+                    'uid': str(event.get('UID', '')),
+                    'summary': str(event.get('SUMMARY', '')),
+                    'source_url': source_url,
+                }
+    return None
+
+
 def extract_timezones(calendar):
     """Extract and return VTIMEZONE components from a calendar."""
     timezones = []
@@ -386,6 +430,7 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
     total_events = 0
     filtered_events = 0
     source_stats = []
+    tz_conflicts = []
 
     for url, custom_summary in calendar_entries:
         src_stat = {
@@ -404,16 +449,18 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
                 calendar = icalendar.Calendar.from_ical(calendar_data)
                 timezones = extract_timezones(calendar)
                 add_timezones_to_calendar(combined_calendar, timezones)
+                # TZIDs declared via VTIMEZONE in this source – treated as known.
+                source_tzids = {str(tz.get('TZID')) for tz in timezones}
                 src_event_count = 0
                 for component in calendar.walk():
                     if component.name == "VEVENT":
                         total_events += 1
-                        
+
                         # Apply date filtering if enabled
                         if filter_by_date and not should_include_event(component, start_date, end_date):
                             filtered_events += 1
                             continue
-                        
+
                         src_event_count += 1
                         label = f" [{custom_summary}]" if custom_summary else ""
                         if not show_details:
@@ -424,6 +471,9 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
                             if 'SUMMARY' in component:
                                 del component['SUMMARY']
                             component.add('SUMMARY', f"{existing}{label}")
+                        issue = detect_event_timezone_issue(component, url, source_tzids)
+                        if issue is not None:
+                            tz_conflicts.append(issue)
                         normalize_event_timezone(component)
                         combined_calendar.add_component(component)
                 src_stat['status'] = 'ok'
@@ -437,8 +487,10 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
 
     if filter_by_date:
         logger.info(f"Processed {total_events} events, filtered out {filtered_events}, kept {total_events - filtered_events}")
+    if tz_conflicts:
+        logger.info(f"Detected {len(tz_conflicts)} timezone issue(s) across all sources.")
 
-    return combined_calendar, source_stats
+    return combined_calendar, source_stats, tz_conflicts
 
 
 @measure_time(log_level='DEBUG')
@@ -577,7 +629,7 @@ SYNC_STATUS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'syn
 MAX_HISTORY_ENTRIES = 50
 
 
-def save_sync_status(source_stats, sync_duration):
+def save_sync_status(source_stats, sync_duration, tz_conflicts=None):
     """Persist per-source fetch results and append to sync history."""
     # Load existing data to preserve history
     existing = {}
@@ -612,6 +664,7 @@ def save_sync_status(source_stats, sync_duration):
         'total_events': total_events,
         'sources': source_stats,
         'history': history,
+        'tz_conflicts': tz_conflicts or [],
     }
 
     try:
@@ -682,16 +735,20 @@ def sync_calendars(url_file_path, config, config_path, logger):
         if not calendar_urls:
             logger.error("No valid calendar URLs found.")
         else:
-            merged_calendar, source_stats = merge_calendars(calendar_urls, retries, delay, timeout, show_details,
-                                             filter_by_date, past_days, future_months)
+            merged_calendar, source_stats, tz_conflicts = merge_calendars(
+                calendar_urls, retries, delay, timeout, show_details,
+                filter_by_date, past_days, future_months,
+            )
             save_calendar(merged_calendar, output_path)
             validate_calendar(output_path)
             # When details are enabled, also generate an anonymized companion file
             # so per-user access can be controlled without detail exposure.
             if show_details:
                 anon_path = get_anon_output_path(output_path)
-                anon_calendar, _ = merge_calendars(calendar_urls, retries, delay, timeout, False,
-                                               filter_by_date, past_days, future_months)
+                anon_calendar, _, _ = merge_calendars(
+                    calendar_urls, retries, delay, timeout, False,
+                    filter_by_date, past_days, future_months,
+                )
                 save_calendar(anon_calendar, anon_path)
                 validate_calendar(anon_path)
                 logger.info(f"Anonymized companion ICS saved: {os.path.basename(anon_path)}")
@@ -700,7 +757,7 @@ def sync_calendars(url_file_path, config, config_path, logger):
             ensure_all_user_ics_symlinks(output_path, show_details)
             # Save sync status for the health dashboard
             sync_duration = round(time.time() - start_time, 3)
-            save_sync_status(source_stats, sync_duration)
+            save_sync_status(source_stats, sync_duration, tz_conflicts)
         logger.info(f"Sync completed in {round(time.time() - start_time, 3)} seconds.")
 
         if sync_interval == 0:
