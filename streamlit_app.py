@@ -1,5 +1,6 @@
 import streamlit as st
 import streamlit.components.v1 as components
+import html as _html
 import os
 import shutil
 import random
@@ -18,10 +19,12 @@ def get_anon_output_path(output_path):
 def render_share_button(username, ics_url, html_url):
     """Render a 'View online' link and a native share button side by side.
     Falls back to an inline share menu on non-HTTPS contexts (e.g. local dev)."""
-    # Escape single quotes in values used inside JS string literals
-    safe_username = username.replace("'", "\\'")
-    safe_html_url = html_url.replace("'", "\\'")
-    safe_ics_url = ics_url.replace("'", "\\'")
+    # Use json.dumps for JS string literals (produces a quoted, safely-escaped string)
+    # and html.escape for HTML attribute contexts.
+    js_username = json.dumps(username)
+    js_html_url = json.dumps(html_url)
+    js_ics_url = json.dumps(ics_url)
+    attr_html_url = _html.escape(html_url, quote=True)
     share_html = f"""
     <style>
       * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -97,7 +100,7 @@ def render_share_button(username, ics_url, html_url):
     </style>
 
     <div id='row'>
-      <a id='viewLink' href='{safe_html_url}' target='_blank'>View online</a>
+      <a id='viewLink' href='{attr_html_url}' target='_blank'>View online</a>
       <button id='shareBtn' onclick='toggleMenu()'>Share</button>
     </div>
     <div id='menu'>
@@ -109,9 +112,9 @@ def render_share_button(username, ics_url, html_url):
     </div>
 
     <script>
-      var ics  = '{safe_ics_url}';
-      var html = '{safe_html_url}';
-      var name = '{safe_username}';
+      var ics  = {js_ics_url};
+      var html = {js_html_url};
+      var name = {js_username};
       var msg  = 'View my calendar: ' + html + '\\n\\nSubscribe ICS (do not download): ' + ics;
 
       document.getElementById('waLink').href   = 'https://wa.me/?text=' + encodeURIComponent(msg);
