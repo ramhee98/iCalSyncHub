@@ -459,7 +459,18 @@ def save_calendar(calendar, output_path):
         ical_output
     )
 
-    # Re-fold lines longer than 75 octets per RFC 5545
+    # Re-fold lines longer than 75 octets per RFC 5545.
+    # Slice on UTF-8 character boundaries so multi-byte characters
+    # (emoji, accents, CJK) are never split mid-character.
+    def _utf8_safe_slice(data: bytes, max_bytes: int) -> tuple[bytes, bytes]:
+        if len(data) <= max_bytes:
+            return data, b''
+        cut = max_bytes
+        # Walk back until we're at a UTF-8 lead byte (not a continuation byte 10xxxxxx).
+        while cut > 0 and (data[cut] & 0xC0) == 0x80:
+            cut -= 1
+        return data[:cut], data[cut:]
+
     lines = ical_output.splitlines()
     folded_lines = []
     for line in lines:
@@ -467,14 +478,11 @@ def save_calendar(calendar, output_path):
         if len(encoded) <= 75:
             folded_lines.append(line)
         else:
-            # First chunk is 75 octets, continuation chunks are 74 (plus leading space)
-            first = encoded[:75].decode('utf-8', errors='ignore')
-            folded_lines.append(first)
-            remaining = encoded[75:]
+            first, remaining = _utf8_safe_slice(encoded, 75)
+            folded_lines.append(first.decode('utf-8'))
             while remaining:
-                chunk = remaining[:74].decode('utf-8', errors='ignore')
-                folded_lines.append(' ' + chunk)
-                remaining = remaining[74:]
+                chunk, remaining = _utf8_safe_slice(remaining, 74)
+                folded_lines.append(' ' + chunk.decode('utf-8'))
 
     ical_output = '\r\n'.join(folded_lines) + '\r\n'
 
