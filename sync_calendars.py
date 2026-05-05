@@ -431,6 +431,7 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
     filtered_events = 0
     source_stats = []
     tz_conflicts = []
+    tz_overrides = load_tz_overrides()
 
     for url, custom_summary in calendar_entries:
         src_stat = {
@@ -471,6 +472,11 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
                             if 'SUMMARY' in component:
                                 del component['SUMMARY']
                             component.add('SUMMARY', f"{existing}{label}")
+                        # Apply any admin-configured TZ override for this UID
+                        uid = str(component.get('UID', ''))
+                        override = tz_overrides.get(uid)
+                        if override and override.get('tzid'):
+                            apply_tz_override(component, override['tzid'])
                         issue = detect_event_timezone_issue(component, url, source_tzids)
                         if issue is not None:
                             tz_conflicts.append(issue)
@@ -626,7 +632,41 @@ def ensure_all_user_ics_symlinks(output_path, show_details):
 
 
 SYNC_STATUS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sync_status.json')
+TZ_OVERRIDES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tz_overrides.json')
 MAX_HISTORY_ENTRIES = 50
+
+
+def load_tz_overrides():
+    """Load per-UID timezone overrides written by the dashboard.
+
+    File format: {"<uid>": {"tzid": "Europe/Zurich"}}  -- tzid="UTC" forces UTC.
+    Missing file or invalid JSON yields an empty dict.
+    """
+    if not os.path.exists(TZ_OVERRIDES_FILE):
+        return {}
+    try:
+        with open(TZ_OVERRIDES_FILE, 'r') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def apply_tz_override(event, tzid):
+    """Apply a timezone override to an event's DTSTART/DTEND if they are
+    naive datetimes. All-day dates and already-aware datetimes are left alone."""
+    if tzid not in all_timezones:
+        return False
+    tz = timezone(tzid)
+    changed = False
+    for time_key in ('DTSTART', 'DTEND'):
+        if time_key not in event:
+            continue
+        dt = event[time_key].dt
+        if isinstance(dt, datetime) and dt.tzinfo is None:
+            event[time_key].dt = dt.replace(tzinfo=tz)
+            changed = True
+    return changed
 
 
 def save_sync_status(source_stats, sync_duration, tz_conflicts=None):
