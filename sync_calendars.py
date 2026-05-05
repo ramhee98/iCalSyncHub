@@ -14,6 +14,12 @@ import string
 from pytz import UTC, all_timezones, timezone
 
 
+# Module-level logger so decorators (e.g. measure_time) and helpers can log
+# even before setup_logging() has been called or when this module is imported
+# by Streamlit (no __main__ block run).
+logger = logging.getLogger(__name__)
+
+
 def setup_logging(config):
     """Set up logging with rotation based on configuration."""
     # Get log level from config, default to INFO
