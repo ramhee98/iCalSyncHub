@@ -240,11 +240,12 @@ def load_tokens():
         return []
     with open(TOKENS_FILE, "r") as f:
         # Each line: username:token:expiration:show_details
-        # expiration may contain colons (ISO datetime), so split on first 2 only,
-        # then strip :true/:false suffix from the remainder for show_details.
+        # expiration may contain colons (ISO datetime); show_details is always the
+        # final field and is restricted to true/false. We split off username and
+        # token from the left, then rsplit the remainder once to peel show_details
+        # off the right. This is unambiguous regardless of timestamp format.
         pairs = []
-        raw_lines = f.readlines()
-        for line in raw_lines:
+        for line in f.readlines():
             line = line.strip()
             if not line:
                 continue
@@ -254,15 +255,18 @@ def load_tokens():
             username = parts[0]
             token = parts[1]
             rest = parts[2] if len(parts) > 2 else ""
-            # Detect trailing :true / :false for the show_details flag
             show_details_str = "false"
-            if rest.endswith(":true") or rest.endswith(":True"):
-                show_details_str = "true"
-                rest = rest[:-5]
-            elif rest.endswith(":false") or rest.endswith(":False"):
-                show_details_str = "false"
-                rest = rest[:-6]
-            expiration = rest
+            if ":" in rest:
+                expiration_candidate, last = rest.rsplit(":", 1)
+                if last.lower() in ("true", "false"):
+                    expiration = expiration_candidate
+                    show_details_str = last.lower()
+                else:
+                    expiration = rest
+            else:
+                expiration = "" if rest.lower() in ("true", "false") else rest
+                if rest.lower() in ("true", "false"):
+                    show_details_str = rest.lower()
             pairs.append((username, token, expiration, show_details_str))
         return pairs
 
