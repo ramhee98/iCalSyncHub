@@ -298,6 +298,14 @@ def save_tokens(pairs):
 def update_token_expiry(username, new_expiry):
     pairs = load_tokens()
     logger = get_logger()
+    # Validate the new expiry value: empty string means "never expires";
+    # anything else must be a parseable ISO 8601 datetime.
+    if new_expiry:
+        try:
+            datetime.fromisoformat(new_expiry)
+        except (TypeError, ValueError):
+            logger.error(f"Refusing to set invalid expiry '{new_expiry}' for user '{username}'.")
+            return False
     updated = False
     token = None
     old_expiry = None
