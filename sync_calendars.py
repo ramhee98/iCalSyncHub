@@ -2,6 +2,7 @@ import os
 import time
 import json
 import requests
+import config_io
 import icalendar
 import configparser
 import logging
@@ -99,15 +100,7 @@ def measure_time(log_level='DEBUG'):
 
 def load_config(config_path):
     """Load configuration from a file."""
-    config = configparser.ConfigParser(interpolation=None)  # Disable interpolation
-    config.read(config_path)
-    return config
-
-
-def save_config(config, config_path):
-    """Save the updated configuration back to the file."""
-    with open(config_path, 'w') as config_file:
-        config.write(config_file)
+    return config_io.load_config(config_path)
 
 
 def generate_random_filename():
@@ -130,7 +123,8 @@ def resolve_output_filename(config, config_path, key='filename'):
     if not filename:
         filename = generate_random_filename()
         config.set('settings', key, filename)
-        save_config(config, config_path)
+        # Persist only this key so the comments in config.ini survive.
+        config_io.set_values(config_path, 'settings', {key: filename})
 
     return os.path.join(output_path, filename)
 
