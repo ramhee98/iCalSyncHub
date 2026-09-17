@@ -11,6 +11,8 @@ iCalSyncHub is a lightweight Python tool with a Streamlit web interface that mer
 - **HTML Calendar Viewer**: Each token automatically generates a shareable HTML viewer page powered by FullCalendar, so users can view events in a browser without importing the ICS.
 - **Per-User Detail Control**: When `show_details = true` globally, each user token can independently be set to show full event details or anonymized availability (Busy/Free). An anonymized companion ICS is automatically generated alongside the main file.
 - **Token Expiry**: Tokens can have an optional expiration date/time. Expired tokens are automatically cleaned up (symlinks and viewer pages removed) on UI refresh and at the start of each sync loop.
+- **Settings Page**: A dedicated Streamlit page for editing every `config.ini` setting from the browser — output paths, sync schedule, event handling, logging, and the event colour map — with validation before anything is written. The file's inline comments are preserved on save.
+- **Raw Calendar Output**: Alongside the merged calendar, a `filename_raw` copy is written in which every event keeps its original `SUMMARY`, i.e. the per-URL custom summaries are not applied.
 - **Sync Health Dashboard**: A dedicated Streamlit page showing per-source fetch status (success/failure, response time, event count), summary metrics, failure alerts, and sync history charts (duration, events, source status over time).
 - **Error Handling**: Resilient to network errors or invalid calendar formats.
 
@@ -177,6 +179,7 @@ By default, the Streamlit app will be available at [http://localhost:8501](http:
 - **Per-user `show_details` toggle**: When `show_details = true` globally, each user can independently be toggled between full event details and anonymized output (Busy/Free). Users without detail access get a symlink to an automatically generated anonymized companion ICS (`<filename>_anon.ics`).
 - **Share button**: Each token card shows a **Share** button next to the "View online" link. On mobile (HTTPS), it triggers the native OS share sheet (WhatsApp, Messages, etc.). On local/non-HTTPS connections it opens an inline menu with WhatsApp, Telegram, Email, and Copy link options. Dark mode is fully supported.
 - **Ensure Links for All Users**: A bulk button recreates all missing `.ics` symlinks and `.html` viewer pages in one step.
+- **Settings** (separate page): Edit the whole of `config.ini` — output directory, domain, calendar filenames, sync interval and retry behaviour, detail and date-range options, logging, and the `[colors]` map — from the browser. Input is validated before saving (for example, the raw calendar filename may not collide with the merged or anonymized file), comments in `config.ini` are kept intact, and settings the page does not expose are left untouched. Changes are picked up on the next sync cycle.
 - **Sync Health Dashboard** (second page): Displays per-source fetch status (green/red indicators, response time, event count, errors), summary metrics (last sync time, duration, total events, OK/failed sources), failure alerts, and sync history charts with tabs for duration, event count, and source status over time. Data is recorded automatically in `sync_status.json` after each sync cycle.
 - All token creation, deletion, and expiry/detail changes are logged to the main log file, including username, token, and relevant details.
 
@@ -199,6 +202,7 @@ The `config.ini` file contains the following settings:
 
 - **`output_path`**: Path where the merged calendar file will be saved.
 - **`filename`**: Optional. Predefined filename for the output calendar. If not set, a random filename will be generated.
+- **`filename_raw`**: Optional. Filename for a second copy of the merged calendar in which every event keeps its original `SUMMARY` — the per-URL custom summaries from `calendar_urls.txt` are not applied. Written to the same directory as `filename` on every sync. If not set, a random filename will be generated.
 - **`domain`**: The public-facing domain used to build shareable calendar URLs (e.g., `https://yourdomain.com`). Used by the Streamlit app to display `.ics` and `.html` links.
 - **`sync_interval`**: Time interval (in seconds) between calendar syncs. Set to `0` to sync only once.
 - **`retries`**: Number of retry attempts if fetching a calendar fails.
@@ -233,6 +237,7 @@ Meeting = #06b6d4
 [settings]
 output_path = /var/www/html/
 filename = mycal.ics
+filename_raw = mycal_raw.ics
 domain = https://yourdomain.com
 sync_interval = 300
 retries = 3
