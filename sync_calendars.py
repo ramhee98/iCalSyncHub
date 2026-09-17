@@ -121,15 +121,15 @@ def get_anon_output_path(output_path):
     return f"{base}_anon{ext}"
 
 
-def resolve_output_filename(config, config_path):
-    """Ensure the filename is defined and saved to the configuration."""
+def resolve_output_filename(config, config_path, key='filename'):
+    """Ensure the filename stored under `key` is defined and saved to the configuration."""
     output_path = config.get('settings', 'output_path', fallback='./')
-    filename = config.get('settings', 'filename', fallback=None)
+    filename = config.get('settings', key, fallback=None)
 
     # Generate a random filename if not already defined
     if not filename:
         filename = generate_random_filename()
-        config.set('settings', 'filename', filename)
+        config.set('settings', key, filename)
         save_config(config, config_path)
 
     return os.path.join(output_path, filename)
@@ -406,11 +406,14 @@ def should_include_event(event, start_date, end_date):
 
 
 @measure_time(log_level='DEBUG')
-def merge_calendars(calendar_entries, retries, delay, timeout, show_details, filter_by_date=False, past_days=14, future_months=2):
+def merge_calendars(calendar_entries, retries, delay, timeout, show_details, filter_by_date=False,
+                    past_days=14, future_months=2, use_custom_summary=True):
     """Merge multiple iCal calendars into one.
 
     Args:
         calendar_entries: Iterable of (url, custom_summary) tuples where custom_summary may be None.
+        use_custom_summary: When False, the per-URL custom summaries are ignored and every
+            event keeps its original SUMMARY.
     """
     combined_calendar = icalendar.Calendar()
     combined_calendar.add('prodid', '-//ramhee98//iCalSyncHub//EN')
@@ -463,7 +466,7 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
                             continue
 
                         src_event_count += 1
-                        label = f" [{custom_summary}]" if custom_summary else ""
+                        label = f" [{custom_summary}]" if (custom_summary and use_custom_summary) else ""
                         if not show_details:
                             status = get_availability_label(component)
                             anonymize_event(component, f"{status}{label}")
@@ -717,6 +720,7 @@ def save_sync_status(source_stats, sync_duration, tz_conflicts=None):
 def sync_calendars(url_file_path, config, config_path, logger):
     """Sync calendars as per the configuration."""
     output_path = resolve_output_filename(config, config_path)
+    raw_output_path = resolve_output_filename(config, config_path, 'filename_raw')
     sync_interval = int(config.get('settings', 'sync_interval'))
     retries = int(config.get('settings', 'retries', fallback=3))
     delay = int(config.get('settings', 'delay', fallback=5))
@@ -727,6 +731,7 @@ def sync_calendars(url_file_path, config, config_path, logger):
     future_months = int(config.get('settings', 'future_months', fallback=2))
 
     logger.info(f"Output file: {os.path.basename(output_path)}")
+    logger.info(f"Raw output file: {os.path.basename(raw_output_path)}")
     logger.info(f"Output directory: {os.path.dirname(output_path)}")
     
     if filter_by_date:
@@ -792,6 +797,17 @@ def sync_calendars(url_file_path, config, config_path, logger):
                 save_calendar(anon_calendar, anon_path)
                 validate_calendar(anon_path)
                 logger.info(f"Anonymized companion ICS saved: {os.path.basename(anon_path)}")
+            # Companion file that keeps each event's original SUMMARY, i.e. the
+            # per-URL custom summaries from calendar_urls.txt are not applied.
+            # Nothing references it yet; it just sits next to the main file.
+            raw_calendar, _, _ = merge_calendars(
+                calendar_urls, retries, delay, timeout, show_details,
+                filter_by_date, past_days, future_months,
+                use_custom_summary=False,
+            )
+            save_calendar(raw_calendar, raw_output_path)
+            validate_calendar(raw_output_path)
+            logger.info(f"Raw companion ICS saved: {os.path.basename(raw_output_path)}")
             # Re-route per-user ICS symlinks so any change to global or per-user
             # show_details is applied automatically on the next sync cycle.
             ensure_all_user_ics_symlinks(output_path, show_details)
