@@ -1,4 +1,5 @@
 import os
+import copy
 import time
 import json
 import requests
@@ -7,6 +8,7 @@ import icalendar
 import configparser
 import logging
 from logging.handlers import RotatingFileHandler
+from collections import namedtuple
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, urlunparse, quote, unquote
 import random
@@ -399,22 +401,46 @@ def should_include_event(event, start_date, end_date):
     return False
 
 
+# One source's parsed contribution, kept independent of how it will be rendered:
+# the events are date-filtered, timezone-corrected and conflict-checked, but no
+# anonymization or per-URL labelling has been applied to them yet.
+CollectedSource = namedtuple(
+    'CollectedSource', ['url', 'custom_summary', 'timezones', 'events'])
+
+# Everything a single round of fetching yields. Renderers turn this into ICS
+# variants without touching the network again.
+CollectedSources = namedtuple(
+    'CollectedSources', ['sources', 'source_stats', 'tz_conflicts'])
+
+
 @measure_time(log_level='DEBUG')
-def merge_calendars(calendar_entries, retries, delay, timeout, show_details, filter_by_date=False,
-                    past_days=14, future_months=2, use_custom_summary=True):
-    """Merge multiple iCal calendars into one.
+def collect_calendar_sources(calendar_entries, retries, delay, timeout, filter_by_date=False,
+                             past_days=14, future_months=2, *, show_details=False):
+    """Fetch and parse every calendar source exactly once.
+
+    This is the expensive half of a sync: it performs the HTTP requests, parses
+    the ICS payloads, applies date filtering and the per-UID timezone overrides,
+    and records timezone conflicts. The result can be rendered into any number
+    of ICS variants by render_calendar() without refetching anything.
 
     Args:
         calendar_entries: Iterable of (url, custom_summary) tuples where custom_summary may be None.
-        use_custom_summary: When False, the per-URL custom summaries are ignored and every
-            event keeps its original SUMMARY.
-    """
-    combined_calendar = icalendar.Calendar()
-    combined_calendar.add('prodid', '-//ramhee98//iCalSyncHub//EN')
-    combined_calendar.add('version', '2.0')
-    combined_calendar.add('calscale', 'GREGORIAN')
-    combined_calendar.add('method', 'PUBLISH')
+        show_details: Affects only the SUMMARY stored on timezone conflict
+            records, so that admin diagnostics carry no real event titles while
+            details are globally disabled. The collected events themselves are
+            never anonymized here -- that is render_calendar()'s job.
+            Keyword-only and defaulting to False so that omitting it degrades
+            the conflict log rather than leaking event titles into it.
 
+    Note:
+        Date filtering happens at this stage because every variant currently
+        shares one window. A per-variant window would instead belong in
+        render_calendar(), with this stage collecting the widest range needed.
+
+    Returns:
+        CollectedSources: the per-source events, plus source_stats and
+        tz_conflicts describing this round of fetching.
+    """
     # Calculate date range if filtering is enabled
     start_date = None
     end_date = None
@@ -426,6 +452,7 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
 
     total_events = 0
     filtered_events = 0
+    sources = []
     source_stats = []
     tz_conflicts = []
     tz_overrides = load_tz_overrides()
@@ -439,17 +466,17 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
             'event_count': 0,
             'error': None,
         }
+        src_timezones = []
+        src_events = []
         fetch_start = time.time()
         calendar_data = fetch_calendar(url, retries, delay, timeout)
         src_stat['response_time'] = round(time.time() - fetch_start, 3)
         if calendar_data:
             try:
                 calendar = icalendar.Calendar.from_ical(calendar_data)
-                timezones = extract_timezones(calendar)
-                add_timezones_to_calendar(combined_calendar, timezones)
+                src_timezones = extract_timezones(calendar)
                 # TZIDs declared via VTIMEZONE in this source – treated as known.
-                source_tzids = {str(tz.get('TZID')) for tz in timezones}
-                src_event_count = 0
+                source_tzids = {str(tz.get('TZID')) for tz in src_timezones}
                 for component in calendar.walk():
                     if component.name == "VEVENT":
                         total_events += 1
@@ -459,41 +486,99 @@ def merge_calendars(calendar_entries, retries, delay, timeout, show_details, fil
                             filtered_events += 1
                             continue
 
-                        src_event_count += 1
-                        label = f" [{custom_summary}]" if (custom_summary and use_custom_summary) else ""
-                        if not show_details:
-                            status = get_availability_label(component)
-                            anonymize_event(component, f"{status}{label}")
-                        elif label:
-                            existing = str(component.get('SUMMARY', ''))
-                            if 'SUMMARY' in component:
-                                del component['SUMMARY']
-                            component.add('SUMMARY', f"{existing}{label}")
-                        # Apply any admin-configured TZ override for this UID
+                        # Order matters below: an override can give a floating
+                        # event a timezone, which detect_event_timezone_issue()
+                        # must see so it no longer reports the event as floating.
                         uid = str(component.get('UID', ''))
                         override = tz_overrides.get(uid)
                         if override and override.get('tzid'):
                             apply_tz_override(component, override['tzid'])
                         issue = detect_event_timezone_issue(component, url, source_tzids)
                         if issue is not None:
+                            if not show_details:
+                                issue['summary'] = get_availability_label(component)
                             tz_conflicts.append(issue)
                         normalize_event_timezone(component)
-                        combined_calendar.add_component(component)
+                        src_events.append(component)
                 src_stat['status'] = 'ok'
-                src_stat['event_count'] = src_event_count
+                src_stat['event_count'] = len(src_events)
             except ValueError as e:
+                # Keep whatever parsed cleanly before the failure; the source is
+                # still reported as failed so the health dashboard flags it.
                 logger.error(f"Error parsing calendar from {url}: {e}")
                 src_stat['error'] = str(e)
         else:
             src_stat['error'] = 'Failed to fetch after all retries'
         source_stats.append(src_stat)
+        sources.append(CollectedSource(url, custom_summary, src_timezones, src_events))
 
     if filter_by_date:
         logger.info(f"Processed {total_events} events, filtered out {filtered_events}, kept {total_events - filtered_events}")
     if tz_conflicts:
         logger.info(f"Detected {len(tz_conflicts)} timezone issue(s) across all sources.")
 
-    return combined_calendar, source_stats, tz_conflicts
+    return CollectedSources(sources, source_stats, tz_conflicts)
+
+
+@measure_time(log_level='DEBUG')
+def render_calendar(collected, show_details, use_custom_summary=True):
+    """Build one merged ICS variant from an already-collected set of sources.
+
+    Pure post-processing: no network access, and the collected events are left
+    untouched, so the same CollectedSources can be rendered any number of times.
+
+    Args:
+        collected: A CollectedSources as returned by collect_calendar_sources().
+        show_details: When False, every event is reduced to a Busy/Free label.
+        use_custom_summary: When False, the per-URL custom summaries are ignored
+            and every event keeps its original SUMMARY.
+    """
+    combined_calendar = icalendar.Calendar()
+    combined_calendar.add('prodid', '-//ramhee98//iCalSyncHub//EN')
+    combined_calendar.add('version', '2.0')
+    combined_calendar.add('calscale', 'GREGORIAN')
+    combined_calendar.add('method', 'PUBLISH')
+
+    for source in collected.sources:
+        add_timezones_to_calendar(combined_calendar, copy.deepcopy(source.timezones))
+        label = f" [{source.custom_summary}]" if (source.custom_summary and use_custom_summary) else ""
+        for event in source.events:
+            # Copy before mutating: anonymize_event() and the label rewrite edit
+            # the component in place, which would otherwise corrupt the shared
+            # collection for every later render.
+            component = copy.deepcopy(event)
+            if not show_details:
+                status = get_availability_label(component)
+                anonymize_event(component, f"{status}{label}")
+            elif label:
+                existing = str(component.get('SUMMARY', ''))
+                if 'SUMMARY' in component:
+                    del component['SUMMARY']
+                component.add('SUMMARY', f"{existing}{label}")
+            combined_calendar.add_component(component)
+
+    return combined_calendar
+
+
+def merge_calendars(calendar_entries, retries, delay, timeout, show_details, filter_by_date=False,
+                    past_days=14, future_months=2, use_custom_summary=True):
+    """Fetch every source and render a single merged calendar.
+
+    Convenience wrapper for callers that need exactly one variant. Producing
+    several variants should instead call collect_calendar_sources() once and
+    render_calendar() per variant, so each source is fetched only a single time.
+
+    Args:
+        calendar_entries: Iterable of (url, custom_summary) tuples where custom_summary may be None.
+        use_custom_summary: When False, the per-URL custom summaries are ignored and every
+            event keeps its original SUMMARY.
+    """
+    collected = collect_calendar_sources(
+        calendar_entries, retries, delay, timeout,
+        filter_by_date, past_days, future_months, show_details=show_details,
+    )
+    calendar = render_calendar(collected, show_details, use_custom_summary)
+    return calendar, collected.source_stats, collected.tz_conflicts
 
 
 @measure_time(log_level='DEBUG')
@@ -774,31 +859,30 @@ def sync_calendars(url_file_path, config, config_path, logger):
         if not calendar_urls:
             logger.error("No valid calendar URLs found.")
         else:
-            merged_calendar, source_stats, tz_conflicts = merge_calendars(
-                calendar_urls, retries, delay, timeout, show_details,
-                filter_by_date, past_days, future_months,
+            # Fetch and parse every source once, then render each ICS variant
+            # from that single collection -- rendering never hits the network.
+            collected = collect_calendar_sources(
+                calendar_urls, retries, delay, timeout,
+                filter_by_date, past_days, future_months, show_details=show_details,
             )
+            source_stats = collected.source_stats
+            tz_conflicts = collected.tz_conflicts
+
+            merged_calendar = render_calendar(collected, show_details)
             save_calendar(merged_calendar, output_path)
             validate_calendar(output_path)
             # When details are enabled, also generate an anonymized companion file
             # so per-user access can be controlled without detail exposure.
             if show_details:
                 anon_path = get_anon_output_path(output_path)
-                anon_calendar, _, _ = merge_calendars(
-                    calendar_urls, retries, delay, timeout, False,
-                    filter_by_date, past_days, future_months,
-                )
+                anon_calendar = render_calendar(collected, False)
                 save_calendar(anon_calendar, anon_path)
                 validate_calendar(anon_path)
                 logger.info(f"Anonymized companion ICS saved: {os.path.basename(anon_path)}")
             # Companion file that keeps each event's original SUMMARY, i.e. the
             # per-URL custom summaries from calendar_urls.txt are not applied.
             # Nothing references it yet; it just sits next to the main file.
-            raw_calendar, _, _ = merge_calendars(
-                calendar_urls, retries, delay, timeout, show_details,
-                filter_by_date, past_days, future_months,
-                use_custom_summary=False,
-            )
+            raw_calendar = render_calendar(collected, show_details, use_custom_summary=False)
             save_calendar(raw_calendar, raw_output_path)
             validate_calendar(raw_output_path)
             logger.info(f"Raw companion ICS saved: {os.path.basename(raw_output_path)}")
