@@ -622,7 +622,9 @@ def save_calendar(calendar, output_path):
             cut -= 1
         return data[:cut], data[cut:]
 
-    lines = ical_output.splitlines()
+    # Split on CRLF only: splitlines() also breaks on characters such as
+    # U+2028 or U+0085, which may legitimately appear inside a value.
+    lines = ical_output.rstrip('\r\n').split('\r\n')
     folded_lines = []
     for line in lines:
         encoded = line.encode('utf-8')
