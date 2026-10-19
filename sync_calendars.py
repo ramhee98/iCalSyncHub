@@ -735,18 +735,40 @@ def load_tz_overrides():
 
 
 def apply_tz_override(event, tzid):
-    """Apply a timezone override to an event's DTSTART/DTEND if they are
-    naive datetimes. All-day dates and already-aware datetimes are left alone."""
+    """Apply a timezone override to an event's naive datetimes.
+
+    Covers DTSTART/DTEND plus RECURRENCE-ID and EXDATE, so the exceptions of a
+    recurring event keep matching the instances they refer to. All-day dates
+    and already-aware datetimes are left alone.
+
+    The properties are re-added rather than having their .dt swapped: the
+    TZID parameter that ends up in the file is set when a property is built,
+    so assigning an aware datetime to an existing property would still be
+    serialized as floating time.
+    """
     if tzid not in all_timezones:
         return False
     tz = timezone(tzid)
     changed = False
-    for time_key in ('DTSTART', 'DTEND'):
+    for time_key in ('DTSTART', 'DTEND', 'RECURRENCE-ID'):
         if time_key not in event:
             continue
         dt = event[time_key].dt
         if isinstance(dt, datetime) and dt.tzinfo is None:
-            event[time_key].dt = dt.replace(tzinfo=tz)
+            del event[time_key]
+            event.add(time_key, tz.localize(dt))
+            changed = True
+    if 'EXDATE' in event:
+        exdates = event['EXDATE']
+        if not isinstance(exdates, list):
+            exdates = [exdates]
+        dts = [entry.dt for exdate in exdates for entry in exdate.dts]
+        if any(isinstance(dt, datetime) and dt.tzinfo is None for dt in dts):
+            del event['EXDATE']
+            for dt in dts:
+                if isinstance(dt, datetime) and dt.tzinfo is None:
+                    dt = tz.localize(dt)
+                event.add('EXDATE', dt)
             changed = True
     return changed
 
