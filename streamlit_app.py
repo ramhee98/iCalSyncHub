@@ -220,8 +220,11 @@ def get_logger():
     logger.propagate = False
     return logger
 
-TOKENS_FILE = "user_tokens.txt"
-CONFIG_FILE = "config.ini"
+# Resolve next to this file, as sync_calendars.py and the pages do, so the
+# app reads the same files regardless of the directory it is started from.
+ROOT = os.path.dirname(os.path.abspath(__file__))
+TOKENS_FILE = os.path.join(ROOT, "user_tokens.txt")
+CONFIG_FILE = os.path.join(ROOT, "config.ini")
 
 def get_domain():
     config = configparser.ConfigParser(interpolation=None)
