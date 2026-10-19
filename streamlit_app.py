@@ -193,7 +193,7 @@ def _write_viewer_html_with_map(template_path, dest_path, color_map):
         shutil.copyfile(template_path, dest_path)
 
 def get_logger():
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
     config.read(CONFIG_FILE)
     log_level = config.get('settings', 'log_level', fallback='INFO').upper()
     log_output = config.get('settings', 'log_output', fallback='both').lower()
@@ -224,7 +224,7 @@ TOKENS_FILE = "user_tokens.txt"
 CONFIG_FILE = "config.ini"
 
 def get_domain():
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
     if not os.path.exists(CONFIG_FILE):
         return ""
     config.read(CONFIG_FILE)
@@ -326,7 +326,7 @@ def update_token_expiry(username, new_expiry):
         logger.info(f"Token expiry changed for user '{username}' (token: {token}) from '{old_expiry or 'never'}' to '{new_expiry or 'never'}'")
         # If new_expiry is in the future, recreate symlink if missing
         try:
-            config = configparser.ConfigParser()
+            config = configparser.ConfigParser(interpolation=None)
             config.read(CONFIG_FILE)
             output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
             filename = config.get('settings', 'filename', fallback='').lstrip('/')
@@ -376,7 +376,7 @@ def ensure_token_links(token, show_details_for_user=False):
     Returns (success: bool, message: str)
     """
     logger = get_logger()
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
     config.read(CONFIG_FILE)
     output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
     filename = config.get('settings', 'filename', fallback='').lstrip('/')
@@ -401,7 +401,7 @@ def ensure_token_links(token, show_details_for_user=False):
             template = os.path.join(os.path.dirname(__file__), 'viewer_template.html')
             if os.path.exists(template):
                 try:
-                    cfg = configparser.ConfigParser()
+                    cfg = configparser.ConfigParser(interpolation=None)
                     cfg.read(CONFIG_FILE)
                     color_map = {}
                     # Always inject color mappings for the viewer if provided
@@ -437,7 +437,7 @@ def add_token(username, expiration=None, show_details_for_user=False):
     pairs.append((username, token, expiration_str, sd_str))
     save_tokens(pairs)
     # Create symlink for the token in output_path
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
     config.read(CONFIG_FILE)
     output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
     filename = config.get('settings', 'filename', fallback='').lstrip('/')
@@ -457,7 +457,7 @@ def remove_token(username):
     pairs = load_tokens()
     logger = get_logger()
     removed_token = None
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
     config.read(CONFIG_FILE)
     output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
     # Find the token to remove
@@ -495,7 +495,7 @@ st.write("Add or remove user tokens to control calendar sharing. Each token is a
 
 domain = get_domain()
 def get_merged_calendar_url():
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
     if not os.path.exists(CONFIG_FILE):
         return None
     config.read(CONFIG_FILE)
@@ -590,7 +590,7 @@ pairs = load_tokens()
 if pairs:
     st.write("## Current Users and Shareable Calendar URLs:")
     merged_url = get_merged_calendar_url()
-    config = configparser.ConfigParser()
+    config = configparser.ConfigParser(interpolation=None)
     config.read(CONFIG_FILE)
     output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
     global_show_details = config.getboolean('settings', 'show_details', fallback=True)
