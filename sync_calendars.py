@@ -185,6 +185,11 @@ def fetch_calendar(url, retries, delay, timeout):
         try:
             response = requests.get(sanitized_url, timeout=timeout)
             response.raise_for_status()
+            # Without a declared charset, requests decodes any text/* body as
+            # ISO-8859-1, which garbles UTF-8 calendars. RFC 5545 makes UTF-8
+            # the default, so use it unless the server says otherwise.
+            if 'charset' not in response.headers.get('Content-Type', '').lower():
+                response.encoding = 'utf-8'
             return response.text
         except requests.RequestException as e:
             logger.warning(f"Error fetching calendar from {sanitized_url} (Attempt {attempt + 1}/{retries}): {e}")
