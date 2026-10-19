@@ -102,10 +102,15 @@ if conflicts:
     for conflict in conflicts:
         by_source.setdefault(conflict.get('source_url', 'unknown'), []).append(conflict)
 
+    # Widget keys need a running index: a UID is not unique across rows. The
+    # moved occurrences of a recurring event share their series' UID, the
+    # same calendar can be listed under two URLs, and events may lack a UID.
+    row = 0
     for source_url, items in by_source.items():
         short = source_url if len(source_url) <= 80 else source_url[:77] + '...'
         with st.expander(f"`{short}` — {len(items)} conflict(s)", expanded=False):
             for c in items:
+                row += 1
                 uid = c.get('uid') or ''
                 summary = c.get('summary') or '(no summary)'
                 tzid = c.get('tzid')
@@ -126,16 +131,16 @@ if conflicts:
                     chosen = st.selectbox(
                         "Assign timezone",
                         options=TZ_OPTIONS,
-                        key=f"select_{uid}",
+                        key=f"select_{row}_{uid}",
                         label_visibility="collapsed",
                     )
                 with col_apply:
-                    if st.button("Apply", key=f"apply_{uid}", disabled=not uid):
+                    if st.button("Apply", key=f"apply_{row}_{uid}", disabled=not uid):
                         set_override(uid, chosen)
                         st.success(f"Override saved for `{uid}` → {chosen}. Next sync will apply it.")
                         st.rerun()
                 with col_utc:
-                    if st.button("UTC", key=f"utc_{uid}", disabled=not uid, help="Force UTC"):
+                    if st.button("UTC", key=f"utc_{row}_{uid}", disabled=not uid, help="Force UTC"):
                         set_override(uid, 'UTC')
                         st.success(f"Override saved for `{uid}` → UTC. Next sync will apply it.")
                         st.rerun()
