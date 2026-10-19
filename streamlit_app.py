@@ -424,6 +424,10 @@ def add_token(username, expiration=None, show_details_for_user=False):
     logger = get_logger()
     if not username:
         return False, "Username cannot be empty."
+    # user_tokens.txt separates its fields with ':', so a colon in the name
+    # would shift every field after it and lose the token.
+    if ':' in username:
+        return False, "Username cannot contain ':'."
     # Prevent duplicate usernames
     if any(entry[0] == username for entry in pairs):
         return False, f"Username '{username}' already exists."

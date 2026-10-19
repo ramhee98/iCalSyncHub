@@ -170,7 +170,7 @@ By default, the Streamlit app will be available at [http://localhost:8501](http:
 
 
 #### Features of the Streamlit app:
-- Add/remove users, each with a unique token.
+- Add/remove users, each with a unique token. Usernames must be unique and cannot contain `:`, which separates the fields in `user_tokens.txt`.
 - For each token, a public `.ics` link is generated (e.g., `https://yourdomain.com/<token>.ics`).
 - The app automatically creates a symlink for each token in the output directory (e.g., `/var/www/html/<token>.ics`), pointing to the merged calendar file. This makes each link immediately accessible and shareable. Additionally, a static HTML viewer is created as `/var/www/html/<token>.html` so users can view the calendar online without importing the ICS.
 - Tokens can have an optional expiration date/time. Expired tokens are marked in the UI and their symlinks and viewer pages are automatically removed.
