@@ -4,6 +4,7 @@ import time
 import json
 import requests
 import config_io
+import detail_levels
 import icalendar
 import configparser
 import logging
@@ -108,12 +109,6 @@ def load_config(config_path):
 def generate_random_filename():
     """Generate a random filename for the iCal file."""
     return ''.join(random.choices(string.ascii_letters + string.digits, k=64)) + '.ics'
-
-
-def get_anon_output_path(output_path):
-    """Return the path for the anonymized companion ICS file."""
-    base, ext = os.path.splitext(output_path)
-    return f"{base}_anon{ext}"
 
 
 def resolve_output_filename(config, config_path, key='filename'):
@@ -283,8 +278,33 @@ def get_availability_label(event):
     return 'Free' if transp == 'TRANSPARENT' else 'Busy'
 
 
+# The only VEVENT properties that survive below full detail. This is a whitelist
+# on purpose: calendar servers add many fields that carry the event's content
+# (X-ALT-DESC, URL, ATTACH, CATEGORIES, conference links in X-GOOGLE-* and
+# X-MICROSOFT-*, ...) and a blocklist would leak whichever one it forgot.
+SAFE_EVENT_PROPERTIES = frozenset({
+    'UID', 'DTSTAMP', 'CREATED', 'LAST-MODIFIED', 'SEQUENCE',
+    'DTSTART', 'DTEND', 'DURATION', 'RRULE', 'RDATE', 'EXDATE', 'RECURRENCE-ID',
+    'SUMMARY', 'STATUS', 'TRANSP', 'CLASS',
+    'COLOR', 'X-COLOR',
+    'X-MICROSOFT-CDO-BUSYSTATUS', 'X-MICROSOFT-CDO-ALLDAYEVENT',
+})
+
+
+def strip_event_details(event):
+    """Remove everything from a VEVENT except SAFE_EVENT_PROPERTIES.
+
+    Sub-components go too: a VALARM carries its own DESCRIPTION, which is
+    usually the event title.
+    """
+    for prop in list(event.keys()):
+        if prop.upper() not in SAFE_EVENT_PROPERTIES:
+            del event[prop]
+    event.subcomponents = []
+
+
 def anonymize_event(event, summary="Busy"):
-    """Anonymize event details to show only availability.
+    """Reduce an event to availability only.
 
     Args:
         event: The VEVENT to anonymize
@@ -293,9 +313,7 @@ def anonymize_event(event, summary="Busy"):
     if 'SUMMARY' in event:
         del event['SUMMARY']
     event.add('SUMMARY', summary)  # Replace with generic or custom text
-    for prop in ('DESCRIPTION', 'LOCATION', 'ATTENDEE', 'ORGANIZER'):
-        if prop in event:
-            del event[prop]  # Remove sensitive details
+    strip_event_details(event)
 
 
 def get_event_date(event):
@@ -430,10 +448,11 @@ def collect_calendar_sources(calendar_entries, retries, delay, timeout, filter_b
 
     Args:
         calendar_entries: Iterable of (url, custom_summary) tuples where custom_summary may be None.
-        show_details: Affects only the SUMMARY stored on timezone conflict
-            records, so that admin diagnostics carry no real event titles while
-            details are globally disabled. The collected events themselves are
-            never anonymized here -- that is render_calendar()'s job.
+        show_details: The global detail level (or a bool, see detail_levels).
+            Affects only the SUMMARY stored on timezone conflict records, so
+            that admin diagnostics carry no real event titles while the level
+            is ``none``. The collected events themselves are never anonymized
+            here -- that is render_calendar()'s job.
             Keyword-only and defaulting to False so that omitting it degrades
             the conflict log rather than leaking event titles into it.
 
@@ -461,6 +480,7 @@ def collect_calendar_sources(calendar_entries, retries, delay, timeout, filter_b
     source_stats = []
     tz_conflicts = []
     tz_overrides = load_tz_overrides()
+    titles_allowed = detail_levels.parse_level(show_details) != detail_levels.NONE
 
     for url, custom_summary in calendar_entries:
         src_stat = {
@@ -500,7 +520,7 @@ def collect_calendar_sources(calendar_entries, retries, delay, timeout, filter_b
                             apply_tz_override(component, override['tzid'])
                         issue = detect_event_timezone_issue(component, url, source_tzids)
                         if issue is not None:
-                            if not show_details:
+                            if not titles_allowed:
                                 issue['summary'] = get_availability_label(component)
                             tz_conflicts.append(issue)
                         normalize_event_timezone(component)
@@ -526,7 +546,7 @@ def collect_calendar_sources(calendar_entries, retries, delay, timeout, filter_b
 
 
 @measure_time(log_level='DEBUG')
-def render_calendar(collected, show_details, use_custom_summary=True):
+def render_calendar(collected, detail_level, use_custom_summary=True):
     """Build one merged ICS variant from an already-collected set of sources.
 
     Pure post-processing: no network access, and the collected events are left
@@ -534,10 +554,13 @@ def render_calendar(collected, show_details, use_custom_summary=True):
 
     Args:
         collected: A CollectedSources as returned by collect_calendar_sources().
-        show_details: When False, every event is reduced to a Busy/Free label.
+        detail_level: ``none`` reduces every event to a Busy/Free label,
+            ``title`` keeps the title but drops all other content, ``all`` keeps
+            the complete event. A bool is accepted too (see detail_levels).
         use_custom_summary: When False, the per-URL custom summaries are ignored
             and every event keeps its original SUMMARY.
     """
+    detail_level = detail_levels.parse_level(detail_level)
     combined_calendar = icalendar.Calendar()
     combined_calendar.add('prodid', '-//ramhee98//iCalSyncHub//EN')
     combined_calendar.add('version', '2.0')
@@ -552,14 +575,17 @@ def render_calendar(collected, show_details, use_custom_summary=True):
             # the component in place, which would otherwise corrupt the shared
             # collection for every later render.
             component = copy.deepcopy(event)
-            if not show_details:
+            if detail_level == detail_levels.NONE:
                 status = get_availability_label(component)
                 anonymize_event(component, f"{status}{label}")
-            elif label:
-                existing = str(component.get('SUMMARY', ''))
-                if 'SUMMARY' in component:
-                    del component['SUMMARY']
-                component.add('SUMMARY', f"{existing}{label}")
+            else:
+                if label:
+                    existing = str(component.get('SUMMARY', ''))
+                    if 'SUMMARY' in component:
+                        del component['SUMMARY']
+                    component.add('SUMMARY', f"{existing}{label}")
+                if detail_level == detail_levels.TITLE:
+                    strip_event_details(component)
             combined_calendar.add_component(component)
 
     return combined_calendar
@@ -656,13 +682,13 @@ def validate_calendar(file_path):
 
 def ensure_all_user_ics_symlinks(output_path, show_details):
     """Re-route every non-expired user ICS symlink so it points to the correct
-    target (main or anonymized companion) based on the current global and
-    per-user show_details settings.  Called after each sync so changes to
-    config.ini or the Streamlit toggle are automatically picked up without
-    requiring a manual 'Ensure Links' action."""
+    target (main file or the companion for a lower level) based on the current
+    global detail level and each user's level.  Called after each sync so
+    changes to config.ini or the Streamlit selector are automatically picked up
+    without requiring a manual 'Ensure Links' action."""
     output_dir = os.path.dirname(output_path)
     main_target = output_path
-    anon_target = get_anon_output_path(output_path)
+    global_level = detail_levels.parse_level(show_details)
     tokens_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'user_tokens.txt')
     if not os.path.exists(tokens_file):
         return
@@ -671,23 +697,14 @@ def ensure_all_user_ics_symlinks(output_path, show_details):
             line = line.strip()
             if not line:
                 continue
-            # Format: username:token:expiration:show_details
+            # Format: username:token:expiration:level
             # The expiration contains colons (ISO 8601), so split to 3 parts
-            # only, then peel the trailing :true/:false for show_details.
+            # only, then peel the trailing level off the right.
             parts = line.split(':', 2)
             if len(parts) < 2:
                 continue
             token = parts[1]
-            rest = parts[2] if len(parts) > 2 else ''
-            show_details_str = 'false'
-            if rest.lower().endswith(':true'):
-                show_details_str = 'true'
-                rest = rest[:-5]
-            elif rest.lower().endswith(':false'):
-                show_details_str = 'false'
-                rest = rest[:-6]
-            expiration = rest
-            user_show_details = show_details_str == 'true'
+            expiration, user_level = detail_levels.split_token_rest(parts[2] if len(parts) > 2 else '')
             # Skip expired tokens. If the expiration value is unparseable we
             # treat the token as expired (fail-closed) and warn, rather than
             # silently routing the user as if they had a valid token.
@@ -701,9 +718,9 @@ def ensure_all_user_ics_symlinks(output_path, show_details):
                         f"'{expiration}'; treating as expired."
                     )
                     continue
-            # Route to anon companion only when global details are on but this
-            # user has no detail access; otherwise always use the main file.
-            target = anon_target if (show_details and not user_show_details) else main_target
+            # A user at the global level reads the main file; a lower level reads
+            # that level's companion. A user can never exceed the global level.
+            target = detail_levels.route_target(main_target, global_level, user_level)
             link_name = os.path.join(output_dir, f"{token}.ics")
             try:
                 needs_update = False
@@ -718,6 +735,25 @@ def ensure_all_user_ics_symlinks(output_path, show_details):
                     logger.info(f"Re-routed ICS symlink for token '{token}' → {os.path.basename(target)}")
             except Exception as e:
                 logger.warning(f"Failed to update ICS symlink for token '{token}': {e}")
+
+
+def remove_stale_companions(output_path, raw_output_path, show_details):
+    """Delete companion files that the current global level no longer writes.
+
+    Without this, lowering the level would leave the old, more detailed file on
+    disk (a ``_title`` file full of event titles after switching to ``none``).
+    The next sync recreates a companion if the level is raised again.
+    """
+    for level in detail_levels.stale_companion_levels(show_details):
+        path = detail_levels.companion_path(output_path, level)
+        # Never touch a file that is also configured as the main or raw output
+        if path in (output_path, raw_output_path) or not os.path.isfile(path):
+            continue
+        try:
+            os.remove(path)
+            logger.info(f"Removed stale {detail_levels.LABELS[level]} companion ICS: {os.path.basename(path)}")
+        except OSError as e:
+            logger.warning(f"Could not remove stale companion {os.path.basename(path)}: {e}")
 
 
 SYNC_STATUS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sync_status.json')
@@ -833,12 +869,19 @@ def sync_calendars(url_file_path, config, config_path, logger):
     retries = int(config.get('settings', 'retries', fallback=3))
     delay = int(config.get('settings', 'delay', fallback=5))
     timeout = int(config.get('settings', 'timeout', fallback=10))
-    show_details = config.getboolean('settings', 'show_details', fallback=True)
+    raw_show_details = config.get('settings', 'show_details', fallback='true')
+    show_details = detail_levels.parse_level(raw_show_details)
+    if not detail_levels.is_level(raw_show_details):
+        logger.warning(
+            f"show_details = '{raw_show_details}' is not one of none, title, all, true, false; "
+            f"falling back to '{show_details}' so that no more than intended is published."
+        )
     filter_by_date = config.getboolean('settings', 'filter_by_date', fallback=False)
     past_days = int(config.get('settings', 'past_days', fallback=14))
     future_months = int(config.get('settings', 'future_months', fallback=2))
 
     logger.info(f"Output file: {os.path.basename(output_path)}")
+    logger.info(f"Detail level: {show_details}")
     logger.info(f"Raw output file: {os.path.basename(raw_output_path)}")
     logger.info(f"Output directory: {os.path.dirname(output_path)}")
     
@@ -855,19 +898,14 @@ def sync_calendars(url_file_path, config, config_path, logger):
                 line = line.strip()
                 if not line:
                     continue
-                # Format: username:token:expiration:show_details
+                # Format: username:token:expiration:level
                 # The expiration contains colons, so split to 3 parts then
-                # strip the trailing :true/:false for show_details.
+                # peel the trailing level off the right.
                 parts = line.split(':', 2)
                 if len(parts) < 2:
                     continue
                 token = parts[1]
-                rest = parts[2] if len(parts) > 2 else ''
-                if rest.lower().endswith(':true'):
-                    rest = rest[:-5]
-                elif rest.lower().endswith(':false'):
-                    rest = rest[:-6]
-                expiration = rest
+                expiration, _ = detail_levels.split_token_rest(parts[2] if len(parts) > 2 else '')
                 if expiration:
                     try:
                         exp_dt = datetime.fromisoformat(expiration)
@@ -900,14 +938,13 @@ def sync_calendars(url_file_path, config, config_path, logger):
             merged_calendar = render_calendar(collected, show_details)
             save_calendar(merged_calendar, output_path)
             validate_calendar(output_path)
-            # When details are enabled, also generate an anonymized companion file
-            # so per-user access can be controlled without detail exposure.
-            if show_details:
-                anon_path = get_anon_output_path(output_path)
-                anon_calendar = render_calendar(collected, False)
-                save_calendar(anon_calendar, anon_path)
-                validate_calendar(anon_path)
-                logger.info(f"Anonymized companion ICS saved: {os.path.basename(anon_path)}")
+            # Every level below the global one gets a companion file, so per-user
+            # access can be limited without exposing more than that user may see.
+            for level in detail_levels.companion_levels(show_details):
+                companion_path = detail_levels.companion_path(output_path, level)
+                save_calendar(render_calendar(collected, level), companion_path)
+                validate_calendar(companion_path)
+                logger.info(f"{detail_levels.LABELS[level]} companion ICS saved: {os.path.basename(companion_path)}")
             # Companion file that keeps each event's original SUMMARY, i.e. the
             # per-URL custom summaries from calendar_urls.txt are not applied.
             # Nothing references it yet; it just sits next to the main file.
@@ -918,6 +955,9 @@ def sync_calendars(url_file_path, config, config_path, logger):
             # Re-route per-user ICS symlinks so any change to global or per-user
             # show_details is applied automatically on the next sync cycle.
             ensure_all_user_ics_symlinks(output_path, show_details)
+            # Only now, with every link re-routed, drop companions the current
+            # level no longer produces (e.g. a _title file after going to 'none').
+            remove_stale_companions(output_path, raw_output_path, show_details)
             # Save sync status for the health dashboard
             sync_duration = round(time.time() - start_time, 3)
             save_sync_status(source_stats, sync_duration, tz_conflicts)

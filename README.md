@@ -9,7 +9,7 @@ iCalSyncHub is a lightweight Python tool with a Streamlit web interface that mer
 - **Custom Configuration**: Use a simple `.ini` file to configure calendar URLs, output location, sync frequency, and more.
 - **Portable Output**: Generates a standard `.ics` file compatible with popular calendar apps like Google Calendar, Outlook, and Apple Calendar.
 - **HTML Calendar Viewer**: Each token automatically generates a shareable, responsive HTML viewer page (agenda list on phones, week view on desktop, light/dark theme, event details, subscribe actions) powered by FullCalendar, so users can view events in a browser without importing the ICS. See [HTML viewer](#html-viewer).
-- **Per-User Detail Control**: When `show_details = true` globally, each user token can independently be set to show full event details or anonymized availability (Busy/Free). An anonymized companion ICS is automatically generated alongside the main file.
+- **Per-User Detail Control**: Each user token can independently be set to **No details** (only Busy/Free), **Title only** (event title and time, nothing else) or **All details**, up to the level chosen globally with `show_details`. A companion ICS is generated for every lower level alongside the main file. See [Detail levels](#detail-levels).
 - **Token Expiry**: Tokens can have an optional expiration date/time. Expired tokens are automatically cleaned up (symlinks and viewer pages removed) on UI refresh and at the start of each sync loop.
 - **Settings Page**: A dedicated Streamlit page for editing every `config.ini` setting from the browser — output paths, sync schedule, event handling, logging, and the event colour map — and the calendar sources in `calendar_urls.txt`, with validation before anything is written. The comments in both files are preserved on save.
 - **Raw Calendar Output**: Alongside the merged calendar, a `filename_raw` copy is written in which every event keeps its original `SUMMARY`, i.e. the per-URL custom summaries are not applied.
@@ -105,7 +105,7 @@ https://example.com/calendar2.ics
 
 Custom anonymized summary per-URL
 
-You can specify a custom summary to use when events are anonymized (when `show_details` is `false`) by adding a `#` followed immediately by the summary text to the URL line. Examples:
+You can specify a custom summary to use when events are anonymized (detail level **No details**) by adding a `#` followed immediately by the summary text to the URL line. Examples:
 
 ```bash
 # URL with a custom summary (URL-encoded or plain text accepted)
@@ -123,7 +123,7 @@ Notes:
 - If the fragment is empty (i.e., `#` with no text), the default summary `Busy` is used.
 - Spaces may be included directly or URL-encoded; the value will be URL-decoded before use.
 - The fragment is removed for fetching the calendar.
-- When `show_details = false`, the custom summary replaces the event title entirely (e.g., `Busy [Out of Office]`). When `show_details = true`, it is appended as a label to the original event title (e.g., `Team Meeting [Out of Office]`).
+- At the **No details** level the custom summary replaces the event title entirely (e.g., `Busy [Out of Office]`). At **Title only** and **All details** it is appended as a label to the original event title (e.g., `Team Meeting [Out of Office]`).
 
 Custom event coloring in viewer
 
@@ -143,7 +143,7 @@ The `[colors]` lookup tries the original summary (`X-ORIG-SUMMARY`, else `SUMMAR
 What the viewer offers:
 
 - **Views**: agenda list (default below 768 px) and week view (default above), plus day and month. The view switches automatically when the window is resized until the user picks one.
-- **Event details**: clicking or pressing Enter/Space on an event opens a dialog (a bottom sheet on phones) with the date and time range, location, description (links are clickable, nothing is rendered as HTML) and the source label. Anonymized events (`Busy`/`Free`, optionally `[label]`) only show the time and the label.
+- **Event details**: clicking or pressing Enter/Space on an event opens a dialog (a bottom sheet on phones) with the date and time range, location, description (links are clickable, nothing is rendered as HTML) and the source label. What it shows follows the detail level of the file: events from a **Title only** file have no description or location to show, and anonymized events (`Busy`/`Free`, optionally `[label]`) only show the time and the label.
 - **Header**: calendar name (`X-WR-CALNAME` if present), last-updated time (the `Last-Modified` header of the ICS, else the newest `DTSTAMP`/`LAST-MODIFIED`), and a **Subscribe** menu with *copy ICS URL*, a `webcal://` link and *add to Google Calendar*. Google can only subscribe to publicly reachable URLs, and the link hands the secret ICS URL to Google, so it only happens when the user clicks it.
 - **Legend**: one entry for every `[colors]` entry that matches at least one event.
 - **Theme**: follows the OS (`prefers-color-scheme`) with a manual auto/light/dark toggle. The manual choice is stored in the browser's `localStorage` only.
@@ -172,6 +172,23 @@ DTEND:20260120T100000Z
 X-COLOR:#06b6d4
 END:VEVENT
 ```
+
+### Detail levels
+
+How much of each event is shared is controlled at two levels:
+
+| Level | Settings / token page label | What the ICS contains |
+|---|---|---|
+| `none` | No details | Only availability: every event is titled `Busy` or `Free` (from `TRANSP`), plus the per-URL label if any. Timing and recurrence are kept. |
+| `title` | Title only | The event title (plus label), time and recurrence. Description, location, attendees, organizer, URL, attachments, categories, conference links, alarms and every other field are removed. |
+| `all` | All details | The complete event. |
+
+- **Global** (`show_details` in `config.ini`, or *Settings → Events → Event detail level*): the most detail that is written at all. The main calendar file holds this level, and every lower level gets a companion file next to it, `<filename>_title.ics` and `<filename>_anon.ics`. A companion for a level at or above the global one is not written, and a leftover one is deleted, so lowering the level never leaves a more detailed file on disk.
+- **Per user** (the **Details** selector on the token page): that user's `.ics` link points at the file for their level. A user can never get more than the global level, so with a global `title` a user stored as `all` is served the title-level file. The selector is hidden while the global level is `none`. New users start at `none`.
+
+Below `all`, events are reduced with a whitelist: only the timing, recurrence, status, transparency, UID and colour properties survive, along with the title at `title` level. Fields a calendar server adds that this tool does not know about are dropped rather than passed through.
+
+`user_tokens.txt` stores the level as the last field (`username:token:expiration:none|title|all`). Files with the older `true`/`false` are read as before and rewritten with the new names the next time a token changes.
 
 ### 4. Run the calendar sync:
 
@@ -204,7 +221,7 @@ By default, the Streamlit app will be available at [http://localhost:8501](http:
 - Tokens can have an optional expiration date/time. Expired tokens are marked in the UI and their symlinks and viewer pages are automatically removed.
 - You can edit, add, or remove the expiry date for any token directly in the Streamlit app UI. When an expiry is set or changed to a future date, or removed (no expiry), the symlink is automatically recreated if it was previously removed due to expiry.
 - The UI displays the expiry status for each token (e.g., EXPIRED, EXPIRES TODAY, EXPIRES SOON, or active).
-- **Per-user `show_details` toggle**: When `show_details = true` globally, each user can independently be toggled between full event details and anonymized output (Busy/Free). Users without detail access get a symlink to an automatically generated anonymized companion ICS (`<filename>_anon.ics`).
+- **Per-user detail level**: Unless `show_details` is `none`, each user has a **Details** selector (No details / Title only / All details), limited to the global level. The user's `.ics` symlink is switched to the matching file straight away. See [Detail levels](#detail-levels).
 - **Share button**: Each token card shows a **Share** button next to the "View online" link. On mobile (HTTPS), it triggers the native OS share sheet (WhatsApp, Messages, etc.). On local/non-HTTPS connections it opens an inline menu with WhatsApp, Telegram, Email, and Copy link options. Dark mode is fully supported.
 - **Ensure Links for All Users**: A bulk button recreates all missing `.ics` symlinks and `.html` viewer pages in one step.
 - **Settings** (separate page): Edit the whole of `config.ini` — output directory, domain, calendar filenames, sync interval and retry behaviour, detail and date-range options, logging, and the `[colors]` map — from the browser. The **Calendar sources** tab edits `calendar_urls.txt`: add, remove or relabel calendars, or untick **On** to keep a source in the file without syncing it (it is written as a commented-out `#<url>` line, as you would do by hand). Each source keeps its `# Name` heading line, and the URLs are validated (`http(s)://`, no spaces or `#`, no duplicates). The sync re-reads the file on every cycle, so changes apply on the next one. Calendar URLs often embed a secret key, so keep the Streamlit app behind authentication. Input is validated before saving (for example, the raw calendar filename may not collide with the merged or anonymized file), comments in `config.ini` are kept intact, and settings the page does not expose are left untouched. Changes are picked up on the next sync cycle.
@@ -212,7 +229,7 @@ By default, the Streamlit app will be available at [http://localhost:8501](http:
 - All token creation, deletion, and expiry/detail changes are logged to the main log file, including username, token, and relevant details.
 
 **Note:**
-- All token-based `.ics` links point to the same merged calendar file by default, unless per-user `show_details` differs (in which case users without detail access are routed to the anonymized companion file).
+- All token-based `.ics` links point to the merged calendar file for users at the global detail level; users at a lower level are routed to that level's companion file (`<filename>_title.ics`, `<filename>_anon.ics`).
 
 ### Automation of Expired Token Cleanup
 
@@ -236,7 +253,7 @@ The `config.ini` file contains the following settings:
 - **`retries`**: Number of retry attempts if fetching a calendar fails.
 - **`delay`**: Time in seconds to wait between retry attempts.
 - **`timeout`**: Maximum time in seconds to wait for a response from a calendar URL.
-- **`show_details`**: Boolean. Set to `true` to include event details (summary, description, location, etc.) in the merged calendar. Set to `false` to anonymize all events and show only availability (e.g., "Busy"). When `true`, an anonymized companion ICS (`<filename>_anon.ics`) is also generated to support per-user detail control.
+- **`show_details`**: The highest level of detail that is written, one of `all`, `title` or `none` (also editable on the Settings page). The older `true` (= `all`) and `false` (= `none`) still work. An unrecognised value is treated as `none` and logged as a warning. See [Detail levels](#detail-levels).
 - **`filter_by_date`**: Boolean. Set to `true` to enable date range filtering for events. When enabled, only events within the specified time window will be included in the merged calendar. Default is `false`.
 - **`past_days`**: Number of days in the past to include when `filter_by_date` is enabled. For example, `14` includes events from the past 14 days. Default is `14`.
 - **`future_months`**: Number of months in the future to include when `filter_by_date` is enabled. For example, `2` includes events up to 2 months ahead (approximately 60 days). Default is `2`.
@@ -271,7 +288,7 @@ sync_interval = 300
 retries = 3
 delay = 5
 timeout = 10
-show_details = true
+show_details = all
 filter_by_date = false
 past_days = 14
 future_months = 2

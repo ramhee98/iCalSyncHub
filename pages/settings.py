@@ -10,6 +10,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import config_io
+import detail_levels
 import url_file
 
 CONFIG_FILE = os.path.join(ROOT, 'config.ini')
@@ -75,10 +76,12 @@ def index_of(options, value, fallback=0):
         return fallback
 
 
-def anon_name(filename):
-    """The companion filename sync_calendars derives from `filename`."""
-    base, ext = os.path.splitext(filename)
-    return f"{base}_anon{ext}"
+def companion_names(filename):
+    """The companion filenames sync_calendars derives from `filename`, by level."""
+    return {
+        level: os.path.basename(detail_levels.companion_path(filename, level))
+        for level in (detail_levels.NONE, detail_levels.TITLE)
+    }
 
 
 def log_line(message):
@@ -186,13 +189,28 @@ with st.form("settings_form"):
             )
 
     with tab_events:
-        show_details = st.toggle(
-            "Show event details",
-            value=bool_of('show_details', True),
-            help="Off replaces every SUMMARY with a plain availability label. When on, an "
-                 "anonymized companion file is written alongside the main one for users "
-                 "without detail access.",
+        current_level = detail_levels.parse_level(text_of('show_details', 'true'))
+        show_details = st.radio(
+            "Event detail level",
+            list(detail_levels.LEVELS),
+            index=detail_levels.LEVELS.index(current_level),
+            format_func=detail_levels.LABELS.get,
+            horizontal=True,
+            help="The most detail that is written to the calendar files. Each user on the token "
+                 "page can be set to this level or lower.\n\n"
+                 "**No details**: every event becomes Busy or Free.\n\n"
+                 "**Title only**: the event title, time and recurrence. Description, location, "
+                 "attendees and every other field are removed.\n\n"
+                 "**All details**: the complete event.",
         )
+        if not detail_levels.is_level(text_of('show_details', 'true')):
+            st.warning(
+                f"`show_details` in config.ini is “{text_of('show_details')}”, which is not a "
+                f"known level. It is treated as “{detail_levels.LABELS[detail_levels.NONE]}” until you save a valid one."
+            )
+        lower = [detail_levels.LABELS[lv] for lv in detail_levels.companion_levels(show_details)]
+        if lower:
+            st.caption("Companion files for the lower levels are written alongside the main file: " + ", ".join(lower) + ".")
         filter_by_date = st.toggle(
             "Limit events to a date range",
             value=bool_of('filter_by_date', False),
@@ -290,11 +308,13 @@ if submitted:
     if filename and filename_raw:
         if filename == filename_raw:
             errors.append("Calendar filename and raw calendar filename must differ.")
-        elif filename_raw == anon_name(filename):
-            errors.append(
-                f"Raw calendar filename collides with the anonymized companion "
-                f"`{anon_name(filename)}` that is generated from the calendar filename."
-            )
+        else:
+            for level, name in companion_names(filename).items():
+                if filename_raw == name:
+                    errors.append(
+                        f"Raw calendar filename collides with the “{detail_levels.LABELS[level]}” "
+                        f"companion `{name}` that is generated from the calendar filename."
+                    )
 
     if domain and not domain.startswith(('http://', 'https://')):
         warnings.append("Domain does not start with http:// or https:// — share links may not work.")
@@ -349,7 +369,13 @@ if submitted:
             'retries': int(retries),
             'delay': int(delay),
             'timeout': int(timeout),
-            'show_details': str(show_details).lower(),
+            # Keep an existing true/false spelling when it already means the chosen level
+            'show_details': (
+                text_of('show_details')
+                if detail_levels.is_level(text_of('show_details'))
+                and detail_levels.parse_level(text_of('show_details')) == show_details
+                else show_details
+            ),
             'filter_by_date': str(filter_by_date).lower(),
             'past_days': int(past_days),
             'future_months': int(future_months),
@@ -412,15 +438,18 @@ with st.expander("Resolved paths"):
 
     rows = [
         ("merged", os.path.join(resolved_dir, main_name) if main_name else pending),
-        ("anonymized", os.path.join(resolved_dir, anon_name(main_name)) if main_name else pending),
+        *[
+            ({detail_levels.NONE: "anonymized", detail_levels.TITLE: "title only"}[level],
+             os.path.join(resolved_dir, companion_names(main_name)[level]) if main_name else pending)
+            for level in detail_levels.companion_levels(text_of('show_details', 'true'))
+        ],
         ("raw", os.path.join(resolved_dir, raw_name) if raw_name else pending),
         ("config", CONFIG_FILE),
         ("sources", URL_FILE),
     ]
     width = max(len(label) for label, _ in rows)
     st.code("\n".join(f"{label.ljust(width)}  {value}" for label, value in rows), language=None)
-    if not bool_of('show_details', True):
-        st.caption("The anonymized companion is only written while “Show event details” is on.")
+    st.caption("A companion file is only written for the levels below “Event detail level”.")
 
 with st.expander("Raw config.ini"):
     st.caption("Settings this page does not expose are left untouched when you save.")

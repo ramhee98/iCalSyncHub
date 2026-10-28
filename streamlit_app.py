@@ -9,11 +9,7 @@ import configparser
 import logging
 from logging.handlers import RotatingFileHandler
 import json
-
-def get_anon_output_path(output_path):
-    """Return the path for the anonymized companion ICS file (mirrors sync_calendars.py)."""
-    base, ext = os.path.splitext(output_path)
-    return f"{base}_anon{ext}"
+import detail_levels
 
 
 def render_share_button(username, ics_url, html_url):
@@ -242,11 +238,12 @@ def load_tokens():
     if not os.path.exists(TOKENS_FILE):
         return []
     with open(TOKENS_FILE, "r") as f:
-        # Each line: username:token:expiration:show_details
-        # expiration may contain colons (ISO datetime); show_details is always the
-        # final field and is restricted to true/false. We split off username and
-        # token from the left, then rsplit the remainder once to peel show_details
-        # off the right. This is unambiguous regardless of timestamp format.
+        # Each line: username:token:expiration:level
+        # expiration may contain colons (ISO datetime); the level is always the
+        # final field (none/title/all, or the older false/true). We split off
+        # username and token from the left, then peel the level off the right
+        # (detail_levels.split_token_rest). This is unambiguous regardless of
+        # timestamp format.
         pairs = []
         for line in f.readlines():
             line = line.strip()
@@ -257,26 +254,15 @@ def load_tokens():
                 continue
             username = parts[0]
             token = parts[1]
-            rest = parts[2] if len(parts) > 2 else ""
-            show_details_str = "false"
-            if ":" in rest:
-                expiration_candidate, last = rest.rsplit(":", 1)
-                if last.lower() in ("true", "false"):
-                    expiration = expiration_candidate
-                    show_details_str = last.lower()
-                else:
-                    expiration = rest
-            else:
-                expiration = "" if rest.lower() in ("true", "false") else rest
-                if rest.lower() in ("true", "false"):
-                    show_details_str = rest.lower()
-            pairs.append((username, token, expiration, show_details_str))
+            expiration, level = detail_levels.split_token_rest(parts[2] if len(parts) > 2 else "")
+            pairs.append((username, token, expiration, level))
         return pairs
 
 def save_tokens(pairs):
     def _sort_key(entry):
-        show_details_str = (entry[3] if len(entry) > 3 else "false").lower()
-        details_key = 0 if show_details_str == "true" else 1
+        # Most detail first: all, then title, then none
+        details_key = len(detail_levels.LEVELS) - 1 - detail_levels.LEVELS.index(
+            detail_levels.parse_level(entry[3] if len(entry) > 3 else detail_levels.NONE))
         username_key = entry[0].lower()
         expiration = entry[2]
         if not expiration:
@@ -294,8 +280,8 @@ def save_tokens(pairs):
     with open(TOKENS_FILE, "w") as f:
         for entry in sorted_pairs:
             username, token, expiration = entry[0], entry[1], entry[2]
-            show_details_str = entry[3] if len(entry) > 3 else "false"
-            f.write(f"{username}:{token}:{expiration}:{show_details_str}\n")
+            level = detail_levels.parse_level(entry[3] if len(entry) > 3 else detail_levels.NONE)
+            f.write(f"{username}:{token}:{expiration}:{level}\n")
 
 # Move update_token_expiry to top level
 def update_token_expiry(username, new_expiry):
@@ -312,13 +298,13 @@ def update_token_expiry(username, new_expiry):
     updated = False
     token = None
     old_expiry = None
-    show_details_for_user = "false"
+    user_level = detail_levels.NONE
     for i, entry in enumerate(pairs):
         u, t, e = entry[0], entry[1], entry[2]
-        sd = entry[3] if len(entry) > 3 else "false"
+        sd = entry[3] if len(entry) > 3 else detail_levels.NONE
         if u == username:
             old_expiry = e
-            show_details_for_user = sd
+            user_level = sd
             pairs[i] = (u, t, new_expiry, sd)
             token = t
             updated = True
@@ -348,34 +334,34 @@ def update_token_expiry(username, new_expiry):
                     except Exception:
                         pass
                 if recreate and not os.path.islink(link_name) and not os.path.exists(link_name):
-                    sd_bool = show_details_for_user.lower() == "true"
-                    ensure_token_links(token, sd_bool)
+                    ensure_token_links(token, user_level)
         except Exception:
             pass
     return updated
-def update_user_show_details(username, show_details_for_user: bool):
-    """Toggle the per-user show_details flag and reroute the symlink accordingly."""
+def update_user_detail_level(username, level):
+    """Set the per-user detail level and reroute the symlink accordingly."""
     pairs = load_tokens()
     logger = get_logger()
     token = None
-    sd_str = "true" if show_details_for_user else "false"
+    level = detail_levels.parse_level(level)
     for i, entry in enumerate(pairs):
         if entry[0] == username:
             token = entry[1]
-            pairs[i] = (entry[0], entry[1], entry[2], sd_str)
+            pairs[i] = (entry[0], entry[1], entry[2], level)
             break
     if token is None:
         return False
     save_tokens(pairs)
-    logger.info(f"show_details set to '{sd_str}' for user '{username}' (token: {token})")
-    ensure_token_links(token, show_details_for_user)
+    logger.info(f"Detail level set to '{level}' for user '{username}' (token: {token})")
+    ensure_token_links(token, level)
     return True
 
 
-def ensure_token_links(token, show_details_for_user=False):
+def ensure_token_links(token, user_level=detail_levels.NONE):
     """Ensure the .ics symlink and the per-token .html viewer exist.
-    When the global show_details=true, users with show_details_for_user=False
-    get a symlink to the anonymized companion ICS instead of the main file.
+    The symlink points at the main file when the user's level equals the global
+    show_details level, and at that level's companion file (_title, _anon) when
+    it is lower. A user never gets more than the global level.
     Returns (success: bool, message: str)
     """
     logger = get_logger()
@@ -383,15 +369,11 @@ def ensure_token_links(token, show_details_for_user=False):
     config.read(CONFIG_FILE)
     output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
     filename = config.get('settings', 'filename', fallback='').lstrip('/')
-    global_show_details = config.getboolean('settings', 'show_details', fallback=True)
+    global_level = detail_levels.parse_level(config.get('settings', 'show_details', fallback='true'))
     if not output_path or not filename:
         return False, 'output_path or filename not configured in config.ini'
     main_target = os.path.join(output_path, filename)
-    # Route to anon companion when global details are on but user has no detail access
-    if global_show_details and not show_details_for_user:
-        target = get_anon_output_path(main_target)
-    else:
-        target = main_target
+    target = detail_levels.route_target(main_target, global_level, user_level)
     link_name = os.path.join(output_path, f"{token}.ics")
     html_dest = os.path.join(output_path, f"{token}.html")
     try:
@@ -422,7 +404,7 @@ def ensure_token_links(token, show_details_for_user=False):
         return False, str(e)
 
 
-def add_token(username, expiration=None, show_details_for_user=False):
+def add_token(username, expiration=None, user_level=detail_levels.NONE):
     pairs = load_tokens()
     logger = get_logger()
     if not username:
@@ -436,8 +418,8 @@ def add_token(username, expiration=None, show_details_for_user=False):
         return False, f"Username '{username}' already exists."
     token = generate_token()
     expiration_str = expiration if expiration else ""
-    sd_str = "true" if show_details_for_user else "false"
-    pairs.append((username, token, expiration_str, sd_str))
+    user_level = detail_levels.parse_level(user_level)
+    pairs.append((username, token, expiration_str, user_level))
     save_tokens(pairs)
     # Create symlink for the token in output_path
     config = configparser.ConfigParser(interpolation=None)
@@ -446,7 +428,7 @@ def add_token(username, expiration=None, show_details_for_user=False):
     filename = config.get('settings', 'filename', fallback='').lstrip('/')
     if output_path and filename:
         try:
-            ok, msg = ensure_token_links(token, show_details_for_user)
+            ok, msg = ensure_token_links(token, user_level)
             if not ok:
                 logger.error(f"Token created for '{username}' but failed to create symlink: {msg}")
                 return False, f"Token created, but failed to create symlink: {msg}"
@@ -523,8 +505,8 @@ if st.button("Ensure Links for All Users"):
             failures = []
             for i, entry in enumerate(pairs_all):
                 u, t = entry[0], entry[1]
-                sd = (entry[3] if len(entry) > 3 else "false").lower() == "true"
-                ok, msg = ensure_token_links(t, sd)
+                level = detail_levels.parse_level(entry[3] if len(entry) > 3 else detail_levels.NONE)
+                ok, msg = ensure_token_links(t, level)
                 if not ok:
                     failures.append((u, t, msg))
                 progress.progress(int((i+1)/total*100))
@@ -589,6 +571,10 @@ def token_expiry_status(expiration):
     except Exception:
         return 'active'
 
+def _on_detail_level_change(username):
+    update_user_detail_level(username, st.session_state[f"detail_level_{username}"])
+
+
 pairs = load_tokens()
 if pairs:
     st.write("## Current Users and Shareable Calendar URLs:")
@@ -596,12 +582,12 @@ if pairs:
     config = configparser.ConfigParser(interpolation=None)
     config.read(CONFIG_FILE)
     output_path = config.get('settings', 'output_path', fallback='/var/www/html/').rstrip('/')
-    global_show_details = config.getboolean('settings', 'show_details', fallback=True)
+    global_level = detail_levels.parse_level(config.get('settings', 'show_details', fallback='true'))
     for idx, entry in enumerate(pairs):
         username = entry[0]
         token = entry[1]
         expiration = entry[2]
-        user_show_details = (entry[3] if len(entry) > 3 else "false").lower() == "true"
+        user_level = detail_levels.parse_level(entry[3] if len(entry) > 3 else detail_levels.NONE)
         status = token_expiry_status(expiration)
         # Remove symlink for expired tokens
         if status == 'expired' and output_path:
@@ -628,14 +614,21 @@ if pairs:
         else:
             col1.caption("No expiration")
 
-        # Per-user show_details toggle (only visible when the global setting is enabled)
-        if global_show_details:
-            toggle_label = "Details: ON" if user_show_details else "Details: OFF"
-            toggle_help = "User can see full event details" if user_show_details else "User sees anonymized events (Busy/Free)"
-            btn_type = "primary" if user_show_details else "secondary"
-            if col1.button(toggle_label, key=f"toggle_details_{username}", help=toggle_help, type=btn_type):
-                if update_user_show_details(username, not user_show_details):
-                    st.rerun()
+        # Per-user detail level, capped by the global setting (hidden while that is "none")
+        if global_level != detail_levels.NONE:
+            level_key = f"detail_level_{username}"
+            # Show what is stored (capped by the global level), not a stale widget value
+            st.session_state[level_key] = detail_levels.effective_level(user_level, global_level)
+            col1.selectbox(
+                "Details",
+                list(detail_levels.levels_up_to(global_level)),
+                format_func=detail_levels.LABELS.get,
+                key=level_key,
+                on_change=_on_detail_level_change,
+                args=(username,),
+                help="No details: only Busy/Free. Title only: event title and time, without "
+                     "description, location or other fields. All details: the complete event.",
+            )
 
         # Expiry date/time management UI
         with col3:
@@ -680,7 +673,7 @@ if pairs:
         else:
             col2.code(token)
         if col3.button(f"Ensure Links", key=f"ensure_{username}"):
-            ok, msg = ensure_token_links(token, user_show_details)
+            ok, msg = ensure_token_links(token, user_level)
             if ok:
                 st.success("Links ensured.")
                 st.rerun()
