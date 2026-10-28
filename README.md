@@ -11,7 +11,7 @@ iCalSyncHub is a lightweight Python tool with a Streamlit web interface that mer
 - **HTML Calendar Viewer**: Each token automatically generates a shareable HTML viewer page powered by FullCalendar, so users can view events in a browser without importing the ICS.
 - **Per-User Detail Control**: When `show_details = true` globally, each user token can independently be set to show full event details or anonymized availability (Busy/Free). An anonymized companion ICS is automatically generated alongside the main file.
 - **Token Expiry**: Tokens can have an optional expiration date/time. Expired tokens are automatically cleaned up (symlinks and viewer pages removed) on UI refresh and at the start of each sync loop.
-- **Settings Page**: A dedicated Streamlit page for editing every `config.ini` setting from the browser — output paths, sync schedule, event handling, logging, and the event colour map — with validation before anything is written. The file's inline comments are preserved on save.
+- **Settings Page**: A dedicated Streamlit page for editing every `config.ini` setting from the browser — output paths, sync schedule, event handling, logging, and the event colour map — and the calendar sources in `calendar_urls.txt`, with validation before anything is written. The comments in both files are preserved on save.
 - **Raw Calendar Output**: Alongside the merged calendar, a `filename_raw` copy is written in which every event keeps its original `SUMMARY`, i.e. the per-URL custom summaries are not applied.
 - **Sync Health Dashboard**: A dedicated Streamlit page showing per-source fetch status (success/failure, response time, event count), summary metrics, failure alerts, and sync history charts (duration, events, source status over time).
 - **Error Handling**: Resilient to network errors or invalid calendar formats.
@@ -96,7 +96,7 @@ nano config.ini
 
 ### 3. Add calendar URLs:
 
-Create a `calendar_urls.txt` file in the project directory, listing the calendar URLs to sync:
+Create a `calendar_urls.txt` file in the project directory, listing the calendar URLs to sync (or add them later from the **Calendar sources** tab of the Streamlit Settings page):
 
 ```bash
 https://example.com/calendar1.ics
@@ -179,7 +179,7 @@ By default, the Streamlit app will be available at [http://localhost:8501](http:
 - **Per-user `show_details` toggle**: When `show_details = true` globally, each user can independently be toggled between full event details and anonymized output (Busy/Free). Users without detail access get a symlink to an automatically generated anonymized companion ICS (`<filename>_anon.ics`).
 - **Share button**: Each token card shows a **Share** button next to the "View online" link. On mobile (HTTPS), it triggers the native OS share sheet (WhatsApp, Messages, etc.). On local/non-HTTPS connections it opens an inline menu with WhatsApp, Telegram, Email, and Copy link options. Dark mode is fully supported.
 - **Ensure Links for All Users**: A bulk button recreates all missing `.ics` symlinks and `.html` viewer pages in one step.
-- **Settings** (separate page): Edit the whole of `config.ini` — output directory, domain, calendar filenames, sync interval and retry behaviour, detail and date-range options, logging, and the `[colors]` map — from the browser. Input is validated before saving (for example, the raw calendar filename may not collide with the merged or anonymized file), comments in `config.ini` are kept intact, and settings the page does not expose are left untouched. Changes are picked up on the next sync cycle.
+- **Settings** (separate page): Edit the whole of `config.ini` — output directory, domain, calendar filenames, sync interval and retry behaviour, detail and date-range options, logging, and the `[colors]` map — from the browser. The **Calendar sources** tab edits `calendar_urls.txt`: add, remove or relabel calendars, or untick **On** to keep a source in the file without syncing it (it is written as a commented-out `#<url>` line, as you would do by hand). Each source keeps its `# Name` heading line, and the URLs are validated (`http(s)://`, no spaces or `#`, no duplicates). The sync re-reads the file on every cycle, so changes apply on the next one. Calendar URLs often embed a secret key, so keep the Streamlit app behind authentication. Input is validated before saving (for example, the raw calendar filename may not collide with the merged or anonymized file), comments in `config.ini` are kept intact, and settings the page does not expose are left untouched. Changes are picked up on the next sync cycle.
 - **Sync Health Dashboard** (second page): Displays per-source fetch status (green/red indicators, response time, event count, errors), summary metrics (last sync time, duration, total events, OK/failed sources), failure alerts, and sync history charts with tabs for duration, event count, and source status over time. Data is recorded automatically in `sync_status.json` after each sync cycle.
 - All token creation, deletion, and expiry/detail changes are logged to the main log file, including username, token, and relevant details.
 

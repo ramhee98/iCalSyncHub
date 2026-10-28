@@ -10,9 +10,11 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import config_io
+import url_file
 
 CONFIG_FILE = os.path.join(ROOT, 'config.ini')
 TEMPLATE_FILE = os.path.join(ROOT, 'config_template.ini')
+URL_FILE = os.path.join(ROOT, 'calendar_urls.txt')
 LOG_LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
 LOG_OUTPUTS = ['console', 'file', 'both', 'none']
 HEX_RE = re.compile(r'^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$')
@@ -96,11 +98,42 @@ def log_line(message):
 
 
 current_colors = config_io.read_entries(CONFIG_FILE, 'colors')
+current_sources, loose_comments = url_file.read(URL_FILE)
 
 with st.form("settings_form"):
-    tab_output, tab_sync, tab_events, tab_logging, tab_colors = st.tabs(
-        ["Output & sharing", "Sync schedule", "Events", "Logging", "Event colors"]
+    tab_sources, tab_output, tab_sync, tab_events, tab_logging, tab_colors = st.tabs(
+        ["Calendar sources", "Output & sharing", "Sync schedule", "Events", "Logging", "Event colors"]
     )
+
+    with tab_sources:
+        st.caption(
+            "The calendars that are merged on every sync, stored in `calendar_urls.txt`. "
+            "**Label** replaces the event title on anonymized events (a blank label keeps the "
+            "default \"Busy\"). Untick **On** to keep a source in the file without syncing it. "
+            "**Name** is only a heading in the file."
+        )
+        st.warning(
+            "Calendar URLs often embed a secret key that grants access to the calendar. "
+            "Anyone who can open this page can read them.",
+            icon="🔑",
+        )
+        sources_df = st.data_editor(
+            pd.DataFrame(
+                [{"On": src.enabled, "Name": src.name, "URL": src.url, "Label": src.label}
+                 for src in current_sources],
+                columns=["On", "Name", "URL", "Label"],
+            ).astype({"On": bool}),
+            num_rows="dynamic",
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "On": st.column_config.CheckboxColumn("On", default=True),
+                "Name": st.column_config.TextColumn("Name"),
+                "URL": st.column_config.TextColumn("URL", required=True, width="large"),
+                "Label": st.column_config.TextColumn("Label"),
+            },
+            key="sources_editor",
+        )
 
     with tab_output:
         output_path = st.text_input(
@@ -291,6 +324,18 @@ if submitted:
         seen.add(summary.lower())
         colors[summary] = color
 
+    sources = []
+    for row in sources_df.to_dict('records'):
+        name = str(row.get('Name') or '').strip()
+        url = str(row.get('URL') or '').strip()
+        label = str(row.get('Label') or '').strip()
+        if not (name or url or label):
+            continue  # an untouched blank row
+        sources.append(url_file.Source(name, url, label, bool(row.get('On', True))))
+    errors.extend(url_file.validate(sources))
+    if not any(src.enabled for src in sources):
+        warnings.append("No calendar source is switched on, so the next sync has nothing to merge.")
+
     if errors:
         for message in errors:
             st.error(message)
@@ -320,22 +365,28 @@ if submitted:
             if text_of(key) != str(value)
         ]
         colors_changed = colors != current_colors
+        sources_changed = sources != current_sources
 
-        if not changed and not colors_changed:
+        if not changed and not colors_changed and not sources_changed:
             st.info("No changes to save.")
         else:
             try:
                 config_io.set_values(CONFIG_FILE, 'settings', new_values)
                 if colors_changed:
                     config_io.replace_entries(CONFIG_FILE, 'colors', colors)
+                if sources_changed:
+                    url_file.write(URL_FILE, sources, loose_comments)
             except OSError as e:
-                st.error(f"Could not write config.ini: {e}")
+                st.error(f"Could not save: {e}")
             else:
                 summary_parts = []
                 if changed:
                     summary_parts.append(", ".join(changed))
                 if colors_changed:
                     summary_parts.append("event colors")
+                if sources_changed:
+                    # Log the count only: the URLs themselves are secrets.
+                    summary_parts.append(f"calendar sources ({len(sources)} listed)")
                 detail = "; ".join(summary_parts)
                 log_line(f"Settings updated via the UI: {detail}")
 
@@ -364,6 +415,7 @@ with st.expander("Resolved paths"):
         ("anonymized", os.path.join(resolved_dir, anon_name(main_name)) if main_name else pending),
         ("raw", os.path.join(resolved_dir, raw_name) if raw_name else pending),
         ("config", CONFIG_FILE),
+        ("sources", URL_FILE),
     ]
     width = max(len(label) for label, _ in rows)
     st.code("\n".join(f"{label.ljust(width)}  {value}" for label, value in rows), language=None)
