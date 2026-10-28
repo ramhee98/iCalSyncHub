@@ -1,654 +1,1172 @@
 <!doctype html>
-<html>
+<html lang="de-CH">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>iCalSyncHub - Calendar Viewer</title>
-  <link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css" rel="stylesheet" />
+  <meta name="color-scheme" content="light dark" />
+  <!-- The URL of this page contains a secret token: keep it out of search indexes and out of Referer headers -->
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="referrer" content="no-referrer" />
+  <title>iCalSyncHub</title>
+  <script>
+    // Apply a stored manual theme before first paint to avoid a flash (storage may be unavailable)
+    try {
+      var t = localStorage.getItem('icalsynchub-theme');
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
   <style>
-    /* Make the page fill the viewport and use a column flex layout so the calendar can scroll inside without clipping */
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --surface: #ffffff;
+      --surface-2: #eef0f4;
+      --text: #14181f;
+      --text-muted: #4a5565;
+      --border: #d5d9e0;
+      --accent: #1d4ed8;
+      --accent-text: #ffffff;
+      --accent-soft: #e4ebfd;
+      --focus: #0b57d0;
+      --danger: #b42318;
+      --danger-bg: #fef3f2;
+      --warn: #92400e;
+      --warn-bg: #fff7ed;
+      --warn-border: #d97706;
+      --today-bg: rgba(29, 78, 216, 0.07);
+      --event-default: #1d4ed8;
+      --event-default-text: #ffffff;
+      --scrim: rgba(15, 20, 31, 0.5);
+      --shadow: 0 10px 30px rgba(15, 20, 31, 0.18);
+      --radius: 12px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg: #0e1116;
+        --surface: #161b22;
+        --surface-2: #1f2630;
+        --text: #e8ecf2;
+        --text-muted: #a6b0bf;
+        --border: #2f3846;
+        --accent: #8ab4ff;
+        --accent-text: #0b1220;
+        --accent-soft: #1d2a44;
+        --focus: #8ab4ff;
+        --danger: #ff8f85;
+        --danger-bg: #2a1513;
+        --warn: #fbbf6a;
+        --warn-bg: #2b1f0d;
+        --warn-border: #8a5a10;
+        --today-bg: rgba(138, 180, 255, 0.1);
+        --event-default: #3f6fd9;
+        --scrim: rgba(0, 0, 0, 0.65);
+        --shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+      }
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0e1116;
+      --surface: #161b22;
+      --surface-2: #1f2630;
+      --text: #e8ecf2;
+      --text-muted: #a6b0bf;
+      --border: #2f3846;
+      --accent: #8ab4ff;
+      --accent-text: #0b1220;
+      --accent-soft: #1d2a44;
+      --focus: #8ab4ff;
+      --danger: #ff8f85;
+      --danger-bg: #2a1513;
+      --warn: #fbbf6a;
+      --warn-bg: #2b1f0d;
+      --warn-border: #8a5a10;
+      --today-bg: rgba(138, 180, 255, 0.1);
+      --event-default: #3f6fd9;
+      --scrim: rgba(0, 0, 0, 0.65);
+      --shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     html, body { height: 100%; margin: 0; padding: 0; }
-    body { font-family: Arial, sans-serif; display: flex; flex-direction: column; min-height: 100vh; }
-    #top { padding: 0.75rem 1rem; background: #f3f4f6; border-bottom: 1px solid #e5e7eb; flex: 0 0 auto; }
-    /* Make the site title non-selectable to avoid accidentally including it when copying the URL */
-    #top strong { user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; }
-    #info { user-select: text; -webkit-user-select: text; }
-    /* Prevent copy button label from being selected when dragging or copying */
-    #copyIcsBtn { user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; }
-    /* Allow the calendar itself to scroll internally if needed, use remaining height, and be responsive/full-width */
+    body {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      height: 100dvh;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+    :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
+    .skip {
+      position: absolute; left: 0.5rem; top: -4rem; z-index: 100;
+      background: var(--accent); color: var(--accent-text);
+      padding: 0.5rem 0.9rem; border-radius: 8px; text-decoration: none; font-weight: 600;
+    }
+    .skip:focus { top: 0.5rem; }
+    .wrap { width: 100%; max-width: 1400px; margin: 0 auto; padding-left: 1rem; padding-right: 1rem; }
+
+    /* ---- Buttons ---- */
+    .btn {
+      appearance: none;
+      display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+      min-height: 2.25rem; padding: 0.35rem 0.85rem;
+      font: inherit; font-size: 0.9375rem; font-weight: 600; line-height: 1.2;
+      color: var(--text); background: var(--surface);
+      border: 1px solid var(--border); border-radius: 8px;
+      cursor: pointer; text-decoration: none;
+      user-select: none; -webkit-user-select: none;
+    }
+    .btn:hover { background: var(--surface-2); }
+    .btn:not(.btn-primary)[aria-pressed="true"], .btn:not(.btn-primary)[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); }
+    .btn-primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+    .btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
+    @media (pointer: coarse) {
+      .btn, .fc .fc-button { min-height: 2.75rem; }
+    }
+
+    /* ---- Header ---- */
+    .app-header { background: var(--surface); border-bottom: 1px solid var(--border); flex: 0 0 auto; }
+    .app-header .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; padding-top: 0.75rem; padding-bottom: 0.75rem; }
+    .brand { flex: 1 1 14rem; min-width: 0; }
+    .brand h1 { margin: 0; font-size: 1.25rem; line-height: 1.25; font-weight: 700; overflow-wrap: anywhere; }
+    .brand .sub { margin: 0; font-size: 0.8125rem; color: var(--text-muted); }
+    .actions { display: flex; align-items: center; gap: 0.5rem; position: relative; }
+
+    /* ---- Subscribe menu ---- */
+    .menu {
+      position: absolute; right: 0; top: calc(100% + 0.5rem); z-index: 50;
+      width: min(24rem, calc(100vw - 2rem));
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: 0.9rem; display: grid; gap: 0.6rem;
+    }
+    .menu h2 { margin: 0; font-size: 0.9375rem; }
+    .menu label { font-size: 0.8125rem; color: var(--text-muted); display: block; margin-bottom: 0.2rem; }
+    .menu input[type="text"] {
+      width: 100%; min-height: 2.25rem; padding: 0.35rem 0.6rem;
+      font: 0.8125rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    }
+    .menu .btn { justify-content: flex-start; width: 100%; }
+    .menu .hint { margin: 0; font-size: 0.8125rem; color: var(--text-muted); }
+
+    /* ---- Main layout ---- */
+    main { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+    main > .wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 0.75rem; padding-top: 0.75rem; padding-bottom: 0.75rem; }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
+    .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
+    .seg:empty { display: none; }
+    .seg .btn { border: 0; border-radius: 0; background: transparent; }
+    .seg .btn + .btn { border-left: 1px solid var(--border); }
+    .seg .btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+
+    .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 0.9rem; list-style: none; margin: 0; padding: 0; font-size: 0.875rem; color: var(--text-muted); }
+    .legend li { display: inline-flex; align-items: center; gap: 0.4rem; }
+    .swatch { width: 0.85rem; height: 0.85rem; border-radius: 3px; border: 1px solid rgba(127, 127, 127, 0.5); flex: 0 0 auto; }
+
+    .notice {
+      background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-border);
+      border-radius: 8px; padding: 0.5rem 0.75rem; font-size: 0.875rem;
+    }
+    .notice .row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+    .notice .btn { min-height: 2rem; font-size: 0.8125rem; color: var(--warn); background: transparent; border-color: var(--warn-border); }
+    .notice ul { margin: 0.25rem 0 0 1.1rem; padding: 0; }
+    .notice .h { font-weight: 600; margin-top: 0.5rem; }
+
+    #calendar-area { flex: 1 1 auto; min-height: 24rem; display: flex; flex-direction: column; }
     #calendar {
-      /* Use flexbox sizing to avoid brittle calc() math and prevent clipping inside flex containers. Setting min-height:0
-         allows the internal scrollbar to appear and not grow the parent, which is a common flexbox scrolling pitfall. */
-      flex: 1 1 auto;
-      min-height: 0;
-      width: 100%;
-      max-width: 1400px; /* cap to avoid ultra-wide layouts */
-      margin: 0 auto;
-      box-sizing: border-box;
-      padding: 1rem;
-      overflow-y: auto;
-      overflow-x: hidden;
-      /* Reserve stable gutter for scrollbars so they don't overlay the rightmost day column in month view */
-      scrollbar-gutter: stable;
-      -webkit-overflow-scrolling: touch;
+      flex: 1 1 auto; min-height: 0;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 0.75rem; overflow: hidden;
     }
-
-    /* Keep small screens consistent */
     @media (max-width: 600px) {
-      /* On small screens we reduce padding */
-      #calendar { padding: 0.5rem; }
+      .wrap { padding-left: 0.75rem; padding-right: 0.75rem; }
+      #calendar { padding: 0.4rem; }
     }
 
-    /* Fallback for older browsers that don't support `scrollbar-gutter` */
-    @supports not (scrollbar-gutter: stable) {
-      #calendar { padding-right: 16px; }
+    /* ---- Loading / error ---- */
+    .state {
+      flex: 1 1 auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem;
+    }
+    .skel { height: 1rem; border-radius: 6px; background: var(--surface-2); }
+    .skel.w1 { width: 40%; height: 1.5rem; } .skel.w2 { width: 90%; } .skel.w3 { width: 75%; } .skel.w4 { width: 60%; }
+    @media (prefers-reduced-motion: no-preference) {
+      .skel { animation: pulse 1.4s ease-in-out infinite; }
+      @keyframes pulse { 50% { opacity: 0.45; } }
+    }
+    .error { flex: 0 0 auto; border-color: var(--danger); background: var(--danger-bg); align-items: flex-start; }
+    .error h2 { margin: 0; font-size: 1.125rem; color: var(--danger); }
+    .error p { margin: 0; }
+    .error pre {
+      margin: 0; max-width: 100%; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+      font: 0.8125rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem;
     }
 
-    /* Ensure day numbers and top-of-cell content sit above any scrollbars or adjacent elements */
-    .fc .fc-daygrid-day-top {
-      position: relative;
-      z-index: 2;
+    /* ---- Event dialog (bottom sheet on phones) ---- */
+    dialog {
+      width: min(32rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem);
+      padding: 0; border: 0; border-radius: 16px; overflow: auto;
+      background: var(--surface); color: var(--text); box-shadow: var(--shadow);
+    }
+    dialog::backdrop { background: var(--scrim); }
+    .dlg { border-top: 6px solid var(--ev-color, var(--event-default)); padding: 1rem 1.25rem 1.25rem; }
+    .dlg-head { display: flex; align-items: flex-start; gap: 0.75rem; justify-content: space-between; }
+    .dlg-head h2 { margin: 0; font-size: 1.25rem; line-height: 1.3; overflow-wrap: anywhere; }
+    .facts { margin: 1rem 0 0; display: grid; gap: 0.9rem; }
+    .facts dt { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+    .facts dd { margin: 0.1rem 0 0; overflow-wrap: anywhere; }
+    .facts .muted { color: var(--text-muted); }
+    .facts .desc { white-space: pre-wrap; }
+    .facts a { color: var(--accent); text-underline-offset: 2px; }
+    .chip { display: inline-block; padding: 0.1rem 0.6rem; border-radius: 999px; background: var(--accent-soft); border: 1px solid var(--border); font-size: 0.875rem; }
+    @media (max-width: 767.98px) {
+      dialog { width: 100%; max-width: 100%; margin: auto 0 0; border-radius: 16px 16px 0 0; max-height: 85dvh; }
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      dialog[open] { animation: rise 0.18s ease-out; }
+      @keyframes rise { from { opacity: 0; transform: translateY(12px); } }
     }
 
-    /* Ensure the FullCalendar grid doesn't create its own overlapping scroll area; allow the container scrollbar to be the primary scroller */
-    .fc .fc-scrollgrid, .fc .fc-daygrid-body {
-      overflow: visible !important;
+    /* ---- FullCalendar theming (v6 exposes CSS variables) ---- */
+    main .fc {
+      --fc-border-color: var(--border);
+      --fc-page-bg-color: var(--surface);
+      --fc-neutral-bg-color: var(--surface-2);
+      --fc-neutral-text-color: var(--text-muted);
+      --fc-today-bg-color: var(--today-bg);
+      --fc-now-indicator-color: var(--danger);
+      --fc-event-bg-color: var(--event-default);
+      --fc-event-border-color: var(--event-default);
+      --fc-event-text-color: var(--event-default-text);
+      --fc-list-event-hover-bg-color: var(--surface-2);
+      --fc-more-link-bg-color: var(--surface-2);
+      --fc-highlight-color: var(--accent-soft);
+      --fc-non-business-color: var(--surface-2);
+      --fc-button-text-color: var(--text);
+      --fc-button-bg-color: var(--surface);
+      --fc-button-border-color: var(--border);
+      --fc-button-hover-bg-color: var(--surface-2);
+      --fc-button-hover-border-color: var(--border);
+      --fc-button-active-bg-color: var(--accent-soft);
+      --fc-button-active-border-color: var(--accent);
+      color: var(--text);
+      font-size: 0.9375rem;
+    }
+    .fc .fc-toolbar.fc-header-toolbar { flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .fc .fc-toolbar-title { font-size: 1.25rem; font-weight: 700; }
+    .fc .fc-button { font-weight: 600; text-transform: none; border-radius: 8px; }
+    .fc .fc-button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; box-shadow: none; }
+    .fc .fc-event { cursor: pointer; }
+    .fc .fc-event:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; box-shadow: none; }
+    .fc .fc-list-event { cursor: pointer; }
+    .fc .fc-list-event:focus-visible td { outline: 3px solid var(--focus); outline-offset: -3px; }
+    .fc .fc-col-header-cell-cushion, .fc .fc-daygrid-day-number, .fc .fc-list-day-text, .fc .fc-list-day-side-text { color: var(--text); }
+    .fc .fc-daygrid-day-top { position: relative; z-index: 2; }
+    /* FullCalendar caps this at 60px, which clips the all-day label */
+    .fc .fc-timegrid-axis-cushion { max-width: none; font-size: 0.8125rem; }
+    @media (max-width: 600px) {
+      .fc .fc-toolbar-title { font-size: 1.05rem; }
     }
   </style>
 </head>
 <body>
-  <div id="top">
-    <strong>iCalSyncHub Viewer</strong>
-    <span id="info" style="margin-left:1rem;color:#555"></span>
-  </div>
-  <div id="calendar"></div>
+  <a class="skip" href="#calendar" data-i18n="skipLink"></a>
+
+  <header class="app-header">
+    <div class="wrap">
+      <div class="brand">
+        <h1 id="calName"></h1>
+        <p class="sub" id="updated" hidden></p>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-primary" id="subscribeBtn" aria-haspopup="true" aria-expanded="false" aria-controls="subscribeMenu" data-i18n="subscribe"></button>
+        <button type="button" class="btn" id="themeBtn"></button>
+        <div class="menu" id="subscribeMenu" role="group" aria-labelledby="subscribeTitle" hidden>
+          <h2 id="subscribeTitle" data-i18n="subscribeTitle"></h2>
+          <div>
+            <label for="icsUrl" data-i18n="icsUrlLabel"></label>
+            <input type="text" id="icsUrl" readonly />
+          </div>
+          <button type="button" class="btn" id="copyIcsBtn"></button>
+          <a class="btn" id="webcalLink" data-i18n="openWebcal"></a>
+          <a class="btn" id="googleLink" target="_blank" rel="noopener noreferrer" data-i18n="addToGoogle"></a>
+          <p class="hint" data-i18n="subscribeHint"></p>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap">
+      <div class="toolbar">
+        <div class="seg" id="viewSwitch" role="group" data-i18n-aria="viewSwitch"></div>
+        <ul class="legend" id="legend" data-i18n-aria="legend" hidden></ul>
+      </div>
+      <div class="notice" id="notice" hidden></div>
+      <div id="calendar-area">
+        <div class="state" id="loading" role="status" aria-live="polite">
+          <span class="sr-only" data-i18n="loading"></span>
+          <div class="skel w1"></div><div class="skel w2"></div><div class="skel w3"></div><div class="skel w2"></div><div class="skel w4"></div><div class="skel w3"></div>
+        </div>
+        <div class="state error" id="error" role="alert" hidden></div>
+        <div id="calendar" hidden></div>
+      </div>
+      <noscript><div class="state error">Für den Kalender wird JavaScript benötigt. / JavaScript is required to show the calendar.</div></noscript>
+    </div>
+  </main>
+
+  <dialog id="eventDialog" aria-labelledby="dlgTitle"></dialog>
 
   <!--INJECT_EVENT_COLOR_MAP-->
   <!--INJECT_DEBUG_MODE-->
 
-  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/ical.js@1.4.0/build/ical.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.22/index.global.min.js" integrity="sha384-a9qx08ufzJ+0qbHzdqA+GYiSayQQB5BK2YGS/HQT9cxhQm+GhiXFj1ByVXa93ZRR" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ical.js@1.4.0/build/ical.min.js" integrity="sha384-HU23+dcnTNa/+HyW/YcLmvy9yGWe3Uzh10JD/Eb+5/bWCiZKnb1blQogZHngVJs5" crossorigin="anonymous"></script>
   <script>
-    // Helper: compute readable text color (#000 or #fff) for a background hex color
-    function readableTextColor(hex) {
+(function () {
+  'use strict';
+
+  // ------------------------------------------------------------------
+  // Strings: every user-visible text lives here so it can be translated.
+  // ------------------------------------------------------------------
+  const LOCALE = 'de-CH';
+  const STRINGS = {
+    appName: 'iCalSyncHub',
+    defaultCalendarName: 'Kalender',
+    skipLink: 'Zum Kalender springen',
+    loading: 'Kalender wird geladen …',
+    lastUpdated: 'Aktualisiert',
+    subscribe: 'Abonnieren',
+    subscribeTitle: 'Kalender abonnieren',
+    icsUrlLabel: 'ICS-Adresse',
+    copyUrl: 'Link kopieren',
+    copied: 'Kopiert!',
+    copyFailed: 'Kopieren fehlgeschlagen',
+    openWebcal: 'In Kalender-App öffnen (webcal://)',
+    addToGoogle: 'Zu Google Kalender hinzufügen',
+    subscribeHint: 'Die Adresse ist geheim: Wer sie kennt, sieht diesen Kalender. Google Kalender kann nur öffentlich erreichbare Adressen abonnieren.',
+    theme: { auto: 'Design: automatisch', light: 'Design: hell', dark: 'Design: dunkel' },
+    themeIcon: { auto: '◐', light: '☀', dark: '☾' },
+    viewSwitch: 'Ansicht wählen',
+    views: { listWeek: 'Liste', timeGridDay: 'Tag', timeGridWeek: 'Woche', dayGridMonth: 'Monat' },
+    legend: 'Legende',
+    calendar: {
+      today: 'Heute', prev: 'Zurück', next: 'Weiter',
+      prevHint: 'Vorheriger Zeitraum', nextHint: 'Nächster Zeitraum', todayHint: 'Zu heute springen',
+      navLinkHint: 'Gehe zu $0',
+      allDay: 'Ganztägig', noEvents: 'Keine Termine in diesem Zeitraum',
+      more: n => `+${n} weitere`, moreShort: n => `+${n}`, moreHint: n => `${n} weitere Termine anzeigen`,
+      week: 'KW',
+    },
+    untitled: '(Ohne Titel)',
+    dialog: {
+      close: 'Schliessen',
+      when: 'Zeit', where: 'Ort', description: 'Beschreibung', source: 'Quelle',
+      allDay: 'Ganztägig', recurring: 'Wiederkehrender Termin',
+    },
+    error: {
+      title: 'Der Kalender konnte nicht geladen werden',
+      retry: 'Erneut versuchen',
+      libs: 'Die benötigten Bibliotheken (FullCalendar, ical.js) konnten nicht geladen werden.',
+      fetch: status => `ICS-Datei konnte nicht abgerufen werden (HTTP ${status}).`,
+      technical: 'Technische Details',
+    },
+    debug: {
+      skipped: (n, parts) => `${n} Termine übersprungen (${parts.join(', ')})`,
+      noStart: n => `${n} ohne Start`,
+      parseErrors: n => `${n} Parse-Fehler`,
+      zeroDuration: n => `${n} ohne Dauer`,
+      details: 'Details',
+      summary: (t, i, s) => `Gelesene VEVENTs: gesamt=${t}, angezeigt=${i}, übersprungen=${s}`,
+      samplesNoStart: n => `Beispiele (ohne Start, bis zu ${n}):`,
+      samplesExceptions: n => `Beispiele (Parse-Fehler, bis zu ${n}):`,
+      download: 'Debug-JSON herunterladen',
+    },
+  };
+
+  // ------------------------------------------------------------------
+  // Small DOM helpers (never use innerHTML)
+  // ------------------------------------------------------------------
+  const $ = id => document.getElementById(id);
+  function el(tag, props, ...children) {
+    const node = document.createElement(tag);
+    if (props) {
+      Object.keys(props).forEach(k => {
+        const v = props[k];
+        if (v == null || v === false) return;
+        if (k === 'class') node.className = v;
+        else if (k === 'text') node.textContent = v;
+        else if (k === 'style') Object.keys(v).forEach(p => node.style.setProperty(p, v[p]));
+        else node.setAttribute(k, v === true ? '' : v);
+      });
+    }
+    children.forEach(c => { if (c != null) node.append(c); });
+    return node;
+  }
+  function t(path) { return path.split('.').reduce((o, k) => (o == null ? o : o[k]), STRINGS); }
+  function applyStaticStrings() {
+    document.querySelectorAll('[data-i18n]').forEach(n => { n.textContent = t(n.getAttribute('data-i18n')); });
+    document.querySelectorAll('[data-i18n-aria]').forEach(n => { n.setAttribute('aria-label', t(n.getAttribute('data-i18n-aria'))); });
+  }
+
+  // ------------------------------------------------------------------
+  // Colors
+  // ------------------------------------------------------------------
+  const colorProbe = document.createElement('span');
+  colorProbe.style.display = 'none';
+  document.documentElement.appendChild(colorProbe);
+
+  // Returns [r,g,b] for any valid CSS color, or null if the browser does not accept it
+  function colorToRgb(color) {
+    if (!color || typeof color !== 'string' || !(window.CSS && CSS.supports('color', color))) return null;
+    colorProbe.style.color = '';
+    colorProbe.style.color = color;
+    const m = getComputedStyle(colorProbe).color.match(/[\d.]+/g);
+    return m && m.length >= 3 ? m.slice(0, 3).map(Number) : null;
+  }
+  function relativeLuminance(rgb) {
+    const [r, g, b] = rgb.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+  // Helper: pick #000 or #fff, whichever has the higher WCAG contrast against the background color
+  function readableTextColor(color) {
+    const rgb = colorToRgb(color);
+    if (!rgb) return null;
+    const l = relativeLuminance(rgb);
+    return (1.05 / (l + 0.05)) >= ((l + 0.05) / 0.05) ? '#ffffff' : '#000000';
+  }
+
+  // ------------------------------------------------------------------
+  // 1. ICS normalization (unchanged logic, ported from tools/simulate_normalizer.py)
+  // ------------------------------------------------------------------
+  function normalizeIcs(s) {
+    try {
+      // Unfold lines
+      s = s.replace(/\r?\n[ \t]+/g, '');
+
+      // Remove broken TZID fragments that contain spaces, commas, or parentheses (e.g., "TZID=(UTC+01:00) Amsterdam, Berlin,...")
+      // This turns e.g. "DTSTART;TZID=(UTC+01:00) Amsterdam, Berlin:20260105T131500" into "DTSTART:20260105T131500"
+      s = s.replace(/^(DTSTART|DTEND|EXDATE|RECURRENCE-ID);TZID="?[^:\r\n\"]*[ \t,\(\)][^:\r\n\"]*"?:/gim, '$1:');
+
+      // Also strip stray alphabetic fragments that may remain before the colon (e.g., "DTEND;TZID=... Ams:2026...")
+      s = s.replace(/^(DTSTART|DTEND|EXDATE|RECURRENCE-ID)(;[^:]*)?\s+[A-Za-z]{1,10}(?=:\d)/gim, '$1');
+
+      // Normalize date property lines to ensure the value after the colon is a clean date/time token.
+      // This picks the last date-like token on the line (handles folded or messy TZID prefixes).
+      s = s.replace(/^(DTSTART[^:]*|DTEND[^:]*|EXDATE[^:]*|RECURRENCE-ID[^:]*):(.*)$/gim, (m, prop, rest) => {
+        try {
+          const matches = (rest || '').match(/(\d{8}T\d{6}Z?|\d{8})/g);
+          if (matches && matches.length) return `${prop}:${matches[matches.length-1]}`;
+          return `${prop}:${(rest||'').replace(/\s+/g,'')}`;
+        } catch (e) { return m; }
+      });
+
+      // AM/PM normalization: handle only date-time property lines (DTSTART/DTEND/EXDATE/RECURRENCE-ID)
+      // Convert forms like "YYYY-MM-DD 9:00 AM", "YYYYMMDDT090000 AM", or compact "YYYYMMDDT090000Am" into canonical YYYYMMDDTHHMMSS.
+      // First handle compact 6-digit time tokens optionally followed by AM/PM (e.g., "20260117T090000Am" or "2026-01-17T090000 AM").
+      s = s.replace(/^(DTSTART[^:]*:|DTEND[^:]*:|EXDATE[^:]*:|RECURRENCE-ID[^:]*:)(\d{8}T)(\d{6})(?:\s*(AM|PM))?/gim,
+                    (m, prop, datePrefix, time6, ampm) => {
+        try {
+          let hh = time6.slice(0,2);
+          const mm = time6.slice(2,4);
+          const ss = time6.slice(4,6);
+          if (ampm) {
+            const upper = (ampm || '').toUpperCase();
+            let hour = parseInt(hh, 10);
+            if (upper === 'PM' && hour < 12) hour += 12;
+            if (upper === 'AM' && hour === 12) hour = 0;
+            hh = String(hour).padStart(2, '0');
+          }
+          return `${prop}${datePrefix}${hh}${mm}${ss}`;
+        } catch (e) { return m; }
+      });
+
+      // Also handle hyphenated ISO date with compact time and optional AM/PM (e.g., "2026-01-17T090000Am")
+      s = s.replace(/^(DTSTART[^:]*:|DTEND[^:]*:|EXDATE[^:]*:|RECURRENCE-ID[^:]*:)(\d{4}-\d{2}-\d{2}T)(\d{6})(?:\s*(AM|PM))?/gim,
+                    (m, prop, datePrefix, time6, ampm) => {
+        try {
+          let hh = time6.slice(0,2);
+          const mm = time6.slice(2,4);
+          const ss = time6.slice(4,6);
+          if (ampm) {
+            const upper = (ampm || '').toUpperCase();
+            let hour = parseInt(hh, 10);
+            if (upper === 'PM' && hour < 12) hour += 12;
+            if (upper === 'AM' && hour === 12) hour = 0;
+            hh = String(hour).padStart(2, '0');
+          }
+          const dateBase = datePrefix.replace(/T$/, '').replace(/-/g, '');
+          return `${prop}${dateBase}T${hh}${mm}${ss}`;
+        } catch (e) { return m; }
+      });
+
+      // Fallback: handle colon-form times like "9:00 AM" or "09:00AM"
+      s = s.replace(/^(DTSTART[^:]*:|DTEND[^:]*:|EXDATE[^:]*:|RECURRENCE-ID[^:]*:)(\d{4}-\d{2}-\d{2}T|\d{8}T|\d{4}-\d{2}-\d{2} )(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)/gim,
+              (m, prop, datePrefix, h, mnt, sec, ampm) => {
+        try {
+          const hour = parseInt(h, 10);
+          const upper = (ampm || '').toUpperCase();
+          let newHour = hour % 12;
+          if (upper === 'PM') newHour += 12;
+          if (hour === 12 && upper === 'AM') newHour = 0;
+          const hh = String(newHour).padStart(2, '0');
+          const ssec = sec || '00';
+          // Normalize date base to YYYYMMDD
+          let dateBase = datePrefix.replace(/T$/, '').trim();
+          if (dateBase.indexOf('-') !== -1) dateBase = dateBase.replace(/-/g, '');
+          return `${prop}${dateBase}T${hh}${mnt}${ssec}`;
+        } catch (e) {
+          return m;
+        }
+      });
+
+      // Strip stray AM/PM tokens that might still remain at end of property values (e.g., "DTSTART:20260117T090000Am")
+      s = s.replace(/^(DTSTART[^:]*:)(.*?)(?:\s*(AM|PM))$/gim, (m, prop, val) => {
+        return `${prop}${val}`;
+      });
+
+      // Handle TZID with UTC offsets or city names for DTSTART/DTEND/EXDATE/RECURRENCE-ID
+      const tzCityMap = ['Amsterdam','Berlin','Vienna','Rome','Stockholm','London','Paris','Zurich','Bern'];
+      s = s.replace(/^(DTSTART|DTEND|EXDATE|RECURRENCE-ID)(;TZID="?([^";:\r\n]+)"?)?:(.*)$/gim, (m, prop, tzParam, tz, val) => {
+        if (!tz) return `${prop}:${val}`;
+        const off = tz.match(/UTC\s*([+-]\d{2}):?(\d{2})?/i);
+        if (off) {
+          // Convert date-times with UTC offset to Z-formatted UTC timestamps when possible
+          try {
+            const parts = val.split(',');
+            const out = parts.map(dt => {
+              if (/^\d{8}$/.test(dt)) return dt; // date-only
+              const mdt = dt.match(/^(\d{8}T\d{6})/);
+              if (!mdt) return dt;
+              const sdt = mdt[1];
+              const y = parseInt(sdt.slice(0,4),10);
+              const mo = parseInt(sdt.slice(4,6),10);
+              const d = parseInt(sdt.slice(6,8),10);
+              const hh = parseInt(sdt.slice(9,11),10);
+              const mm = parseInt(sdt.slice(11,13),10);
+              const ss = parseInt(sdt.slice(13,15),10);
+              const sign = off[1].startsWith('-') ? -1 : 1;
+              const oh = parseInt(off[1].slice(1,3),10);
+              const om = parseInt(off[2] || '0',10);
+              const offsetMinutes = sign * (oh*60 + om);
+              const dtObj = new Date(Date.UTC(y, mo-1, d, hh, mm, ss));
+              // shift by offset to UTC
+              const utcMs = dtObj.getTime() - offsetMinutes*60*1000;
+              const utc = new Date(utcMs);
+              const YYYY = utc.getUTCFullYear();
+              const MM = String(utc.getUTCMonth()+1).padStart(2,'0');
+              const DD = String(utc.getUTCDate()).padStart(2,'0');
+              const H = String(utc.getUTCHours()).padStart(2,'0');
+              const Min = String(utc.getUTCMinutes()).padStart(2,'0');
+              const S = String(utc.getUTCSeconds()).padStart(2,'0');
+              return `${YYYY}${MM}${DD}T${H}${Min}${S}Z`;
+            });
+            return `${prop}:${out.join(',')}`;
+          } catch (e) {
+            return `${prop}:${val}`;
+          }
+        }
+        const found = tzCityMap.find(c => tz.indexOf(c) !== -1);
+        if (found) return `${prop};TZID=Europe/${found}:${val}`;
+        // Last resort: drop the TZID and keep the value
+        return `${prop}:${val}`;
+      });
+
+      // Remove remaining bad TZID params that contain spaces, commas, or parentheses
+      s = s.replace(/;TZID="?[^:\r\n\"]*[ \t,\(\)][^:\r\n\"]*"?/g, '');
+
+      // Fix colon folds (where colon moved to next folded line)
+      s = s.replace(/\r?\n\s*:/g, ':');
+
+      return s;
+    } catch (e) {
+      console.warn('Normalization failed', e);
+      return s;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // 2. Parsing: normalized text first, raw text as fallback
+  // ------------------------------------------------------------------
+  function parseIcs(icsText) {
+    const normalizedIcs = normalizeIcs(icsText);
+    let comp = null;
+    try {
+      // Try parsing normalized text; fallback to raw if parse fails
+      let beforeCount = null;
+      try { const cb = new ICAL.Component(ICAL.parse(icsText)); beforeCount = cb.getAllSubcomponents('vevent').length; } catch (e) {}
+      const jcal = ICAL.parse(normalizedIcs);
+      comp = new ICAL.Component(jcal);
+      try { const ca = new ICAL.Component(ICAL.parse(normalizedIcs)); console.info('VEVENTs parsed: before=%s after=%s', beforeCount === null ? 'unknown' : beforeCount, ca.getAllSubcomponents('vevent').length); } catch (e) {}
+    } catch (err) {
+      // If normalized parse fails, attempt raw parse for diagnostics
       try {
-        if (!hex) return '#000000';
-        hex = hex.replace('#','');
-        if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
-        const r = parseInt(hex.slice(0,2),16);
-        const g = parseInt(hex.slice(2,4),16);
-        const b = parseInt(hex.slice(4,6),16);
-        // Perceived luminance
-        const lum = 0.2126*r + 0.7152*g + 0.0722*b;
-        return lum > 128 ? '#000000' : '#ffffff';
-      } catch (e) {
-        return '#000000';
+        const jcal = ICAL.parse(icsText);
+        comp = new ICAL.Component(jcal);
+        console.info('VEVENTs parsed (raw only) =', comp.getAllSubcomponents('vevent').length);
+      } catch (err2) {
+        throw err; // rethrow the original normalized parse error
       }
     }
+    return comp;
+  }
 
-    // Determine token/filename from the current path (e.g., /<token>.html)
-    (async function(){
+  // ------------------------------------------------------------------
+  // 3. Colors: config map -> label in [brackets] -> X-COLOR / COLOR -> default
+  // ------------------------------------------------------------------
+  function hasOwn(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+
+  // Returns { color, mapKey, mapLabel }; mapKey/mapLabel are set only when the config map matched (used for the legend)
+  function resolveColor(ev, origSummary) {
+    let color = null, mapKey = null, mapLabel = null;
+    const map = window.EVENT_COLOR_MAP;
+    if (typeof map !== 'undefined' && map && origSummary) {
+      const labelMatch = origSummary.match(/\[([^\]]+)\]$/);
+      const label = labelMatch ? labelMatch[1] : null;
+      const candidates = [
+        [origSummary, origSummary],
+        [origSummary.toLowerCase(), origSummary],
+        label ? [label, label] : null,
+        label ? [label.toLowerCase(), label] : null,
+      ];
+      for (const c of candidates) {
+        if (c && hasOwn(map, c[0]) && map[c[0]]) { color = map[c[0]]; mapKey = c[0]; mapLabel = c[1]; break; }
+      }
+    }
+    if (!color) {
+      color = ev.getFirstPropertyValue('x-color') || ev.getFirstPropertyValue('color') || null;
+    }
+    return { color, mapKey, mapLabel };
+  }
+
+  // ------------------------------------------------------------------
+  // 4. Events: VEVENT -> FullCalendar event objects (incl. recurrence expansion)
+  // ------------------------------------------------------------------
+  // Expansion window: 180 days before and 365 days after today
+  const EXPAND_START_DAYS = 180;
+  const EXPAND_END_DAYS = 365;
+  // Maximum occurrences per recurring event that fall inside the window
+  const MAX_OCCURRENCES = 730;
+  // Hard cap on iterator steps (including occurrences before the window) against runaway rules
+  const MAX_ITERATIONS = 100000;
+
+  // Date-only values become 'YYYY-MM-DD' (all-day, exclusive end as in ICS); date-times become ISO UTC strings
+  function toFcTimes(startT, endT) {
+    if (startT.isDate) {
+      return { allDay: true, start: startT.toString().slice(0, 10), end: endT ? endT.toString().slice(0, 10) : null };
+    }
+    return { allDay: false, start: startT.toJSDate().toISOString(), end: endT ? endT.toJSDate().toISOString() : null };
+  }
+
+  function makeEvent(comp, e, times, recurring) {
+    const origSummary = comp.getFirstPropertyValue('x-orig-summary') || e.summary || '';
+    const c = resolveColor(comp, origSummary);
+    const color = c.color && colorToRgb(c.color) ? c.color : null;
+    const title = e.summary || '';
+    const labelMatch = title.match(/^(.*?)\s*\[([^\]]+)\]$/);
+    return {
+      title: title,
+      start: times.start,
+      end: times.end,
+      allDay: times.allDay,
+      backgroundColor: color,
+      borderColor: color,
+      textColor: color ? readableTextColor(color) : null,
+      extendedProps: {
+        description: e.description || '',
+        location: e.location || '',
+        recurring: recurring,
+        baseTitle: labelMatch && labelMatch[1] ? labelMatch[1] : title,
+        label: labelMatch && labelMatch[1] ? labelMatch[2] : '',
+        legendKey: c.mapKey,
+        legendLabel: c.mapLabel,
+      },
+    };
+  }
+
+  // Collect RECURRENCE-ID overrides keyed by UID so we can apply them during expansion
+  function collectOverrides(vevents) {
+    const byUid = {};
+    vevents.forEach(ev => {
+      const recId = ev.getFirstPropertyValue('recurrence-id');
+      if (recId) {
+        const uid = ev.getFirstPropertyValue('uid') || '';
+        if (!byUid[uid]) byUid[uid] = {};
+        const key = recId.toICALString ? recId.toICALString() : String(recId);
+        byUid[uid][key] = ev;
+      }
+    });
+    return byUid;
+  }
+
+  // Expand a recurring VEVENT (RRULE/RDATE, honoring EXDATE and overrides) into `out`
+  function expandRecurring(ev, e, overridesByUid, windowStart, windowEnd, out) {
+    const duration = e.duration; // ICAL.Duration
+    const iter = e.iterator();
+    const uid = ev.getFirstPropertyValue('uid') || '';
+    const overrides = overridesByUid[uid];
+    let count = 0;
+    let iterations = 0;
+    let next;
+    while ((next = iter.next()) && count < MAX_OCCURRENCES && iterations < MAX_ITERATIONS) {
+      iterations++;
+      // Stop expanding past the window
+      if (next.compare(windowEnd) > 0) break;
+      // Skip occurrences before the window
+      if (next.compare(windowStart) < 0) continue;
+      count++;
+
+      // Check if this occurrence has a RECURRENCE-ID override
+      const occKey = next.toICALString ? next.toICALString() : String(next);
+      if (overrides && overrides[occKey]) {
+        // Use the override event instead
+        const ovEv = overrides[occKey];
+        const ovE = new ICAL.Event(ovEv);
+        out.push(makeEvent(ovEv, ovE, toFcTimes(ovE.startDate || next, ovE.endDate), true));
+        continue;
+      }
+
+      // Regular occurrence
+      let occEnd = null;
+      if (duration) {
+        occEnd = next.clone();
+        occEnd.addDuration(duration);
+      }
+      out.push(makeEvent(ev, e, toFcTimes(next, occEnd), true));
+    }
+  }
+
+  // Build all events. Faulty VEVENTs are skipped and recorded in `stats` for the debug panel.
+  function buildEvents(comp) {
+    const vevents = comp.getAllSubcomponents('vevent');
+    const stats = { total: vevents.length, skippedNoStart: 0, skippedException: 0, skippedZeroDuration: 0, samplesNoStart: [], samplesExceptions: [] };
+    const windowStart = ICAL.Time.fromJSDate(new Date(Date.now() - EXPAND_START_DAYS * 86400000));
+    const windowEnd = ICAL.Time.fromJSDate(new Date(Date.now() + EXPAND_END_DAYS * 86400000));
+    const overridesByUid = collectOverrides(vevents);
+    let events = [];
+
+    vevents.forEach(ev => {
       try {
-        // Ensure FullCalendar is loaded (fallback to CDN loader if blocked)
-        async function ensureScript(url){
-          return new Promise((resolve,reject)=>{
-            const s = document.createElement('script');
-            s.src = url;
-            s.onload = () => resolve();
-            s.onerror = () => reject(new Error('Failed to load ' + url));
-            document.head.appendChild(s);
-          });
+        const e = new ICAL.Event(ev);
+
+        // Skip RECURRENCE-ID overrides here – they are handled during expansion
+        if (ev.getFirstPropertyValue('recurrence-id')) return;
+
+        // Ensure we have a valid start date
+        if (!e.startDate) {
+          stats.skippedNoStart++;
+          const uid = ev.getFirstPropertyValue('uid') || '(no-uid)';
+          const summary = (ev.getFirstPropertyValue('x-orig-summary') || e.summary || '').toString();
+          if (stats.samplesNoStart.length < 10) stats.samplesNoStart.push({ uid, summary });
+          return;
         }
-        if (typeof FullCalendar === 'undefined'){
-          // try loading a compatible UMD build
-          await ensureScript('https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js');
-          if (typeof FullCalendar === 'undefined') throw new Error('FullCalendar is not available after fallback load.');
-        }
-        const path = window.location.pathname;
-        const token = path.split('/').pop().replace('.html','');
-        const icsUrl = `${token}.ics`;
-        // Display full absolute ICS URL (including domain) as plain text so users can import it into their client.
-        const absoluteIcsUrl = new URL(icsUrl, window.location.href).toString();
-        const infoEl = document.getElementById('info');
-        infoEl.textContent = absoluteIcsUrl;
-        // Add a small copy-to-clipboard button that copies only the ICS URL (avoids copying the site title)
-        const copyBtn = document.createElement('button');
-        copyBtn.id = 'copyIcsBtn';
-        copyBtn.type = 'button';
-        copyBtn.textContent = 'Copy';
-        copyBtn.setAttribute('aria-label', 'Copy ICS URL');
-        copyBtn.style.marginLeft = '0.5rem';
-        copyBtn.style.padding = '0.15rem 0.5rem';
-        copyBtn.style.fontSize = '0.9rem';
-        copyBtn.style.cursor = 'pointer';
-        copyBtn.style.border = '1px solid #cbd5e1';
-        copyBtn.style.borderRadius = '4px';
-        copyBtn.style.background = '#fff';
-        copyBtn.style.color = '#111827';
-        // Ensure the button label cannot be selected (extra safeguard for browsers)
-        copyBtn.style.userSelect = 'none';
-        copyBtn.setAttribute('unselectable', 'on');
-        copyBtn.onselectstart = () => false;
-        copyBtn.addEventListener('click', async () => {
+
+        const recurring = !!(ev.getFirstPropertyValue('rrule') || ev.getFirstProperty('rdate'));
+        if (recurring) {
           try {
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-              await navigator.clipboard.writeText(absoluteIcsUrl);
-            } else {
-              const ta = document.createElement('textarea');
-              ta.value = absoluteIcsUrl;
-              document.body.appendChild(ta);
-              ta.select();
-              document.execCommand('copy');
-              document.body.removeChild(ta);
-            }
-            copyBtn.textContent = 'Copied!';
-            setTimeout(() => copyBtn.textContent = 'Copy', 2000);
-          } catch (e) {
-            console.error('Copy failed', e);
-            copyBtn.textContent = 'Error';
-            setTimeout(() => copyBtn.textContent = 'Copy', 2000);
+            expandRecurring(ev, e, overridesByUid, windowStart, windowEnd, events);
+          } catch (recurErr) {
+            // If recurrence expansion fails, fall back to single instance
+            console.warn('Recurrence expansion failed, using single instance:', e.summary, recurErr);
+            events.push(makeEvent(ev, e, toFcTimes(e.startDate, e.endDate), true));
           }
-        });
-        infoEl.appendChild(copyBtn);
-
-        const resp = await fetch(icsUrl);
-        if (!resp.ok) throw new Error('Failed to fetch ICS: ' + resp.status);
-        const icsText = await resp.text();
-
-        // Client-side normalization to reduce faulty VEVENTs (ported from tools/simulate_normalizer.py)
-        function normalizeIcs(s) {
-          try {
-            // Unfold lines
-            s = s.replace(/\r?\n[ \t]+/g, '');
-
-            // Remove broken TZID fragments that contain spaces, commas, or parentheses (e.g., "TZID=(UTC+01:00) Amsterdam, Berlin,...")
-            // This turns e.g. "DTSTART;TZID=(UTC+01:00) Amsterdam, Berlin:20260105T131500" into "DTSTART:20260105T131500"
-            s = s.replace(/^(DTSTART|DTEND|EXDATE|RECURRENCE-ID);TZID="?[^:\r\n\"]*[ \t,\(\)][^:\r\n\"]*"?:/gim, '$1:');
-
-            // Also strip stray alphabetic fragments that may remain before the colon (e.g., "DTEND;TZID=... Ams:2026...")
-            s = s.replace(/^(DTSTART|DTEND|EXDATE|RECURRENCE-ID)(;[^:]*)?\s+[A-Za-z]{1,10}(?=:\d)/gim, '$1');
-
-            // Normalize date property lines to ensure the value after the colon is a clean date/time token.
-            // This picks the last date-like token on the line (handles folded or messy TZID prefixes).
-            s = s.replace(/^(DTSTART[^:]*|DTEND[^:]*|EXDATE[^:]*|RECURRENCE-ID[^:]*):(.*)$/gim, (m, prop, rest) => {
-              try {
-                const matches = (rest || '').match(/(\d{8}T\d{6}Z?|\d{8})/g);
-                if (matches && matches.length) return `${prop}:${matches[matches.length-1]}`;
-                return `${prop}:${(rest||'').replace(/\s+/g,'')}`;
-              } catch (e) { return m; }
-            });
-
-            // AM/PM normalization: handle only date-time property lines (DTSTART/DTEND/EXDATE/RECURRENCE-ID)
-            // Convert forms like "YYYY-MM-DD 9:00 AM", "YYYYMMDDT090000 AM", or compact "YYYYMMDDT090000Am" into canonical YYYYMMDDTHHMMSS.
-            // First handle compact 6-digit time tokens optionally followed by AM/PM (e.g., "20260117T090000Am" or "2026-01-17T090000 AM").
-            s = s.replace(/^(DTSTART[^:]*:|DTEND[^:]*:|EXDATE[^:]*:|RECURRENCE-ID[^:]*:)(\d{8}T)(\d{6})(?:\s*(AM|PM))?/gim,
-                          (m, prop, datePrefix, time6, ampm) => {
-              try {
-                let hh = time6.slice(0,2);
-                const mm = time6.slice(2,4);
-                const ss = time6.slice(4,6);
-                if (ampm) {
-                  const upper = (ampm || '').toUpperCase();
-                  let hour = parseInt(hh, 10);
-                  if (upper === 'PM' && hour < 12) hour += 12;
-                  if (upper === 'AM' && hour === 12) hour = 0;
-                  hh = String(hour).padStart(2, '0');
-                }
-                return `${prop}${datePrefix}${hh}${mm}${ss}`;
-              } catch (e) { return m; }
-            });
-
-            // Also handle hyphenated ISO date with compact time and optional AM/PM (e.g., "2026-01-17T090000Am")
-            s = s.replace(/^(DTSTART[^:]*:|DTEND[^:]*:|EXDATE[^:]*:|RECURRENCE-ID[^:]*:)(\d{4}-\d{2}-\d{2}T)(\d{6})(?:\s*(AM|PM))?/gim,
-                          (m, prop, datePrefix, time6, ampm) => {
-              try {
-                let hh = time6.slice(0,2);
-                const mm = time6.slice(2,4);
-                const ss = time6.slice(4,6);
-                if (ampm) {
-                  const upper = (ampm || '').toUpperCase();
-                  let hour = parseInt(hh, 10);
-                  if (upper === 'PM' && hour < 12) hour += 12;
-                  if (upper === 'AM' && hour === 12) hour = 0;
-                  hh = String(hour).padStart(2, '0');
-                }
-                const dateBase = datePrefix.replace(/T$/, '').replace(/-/g, '');
-                return `${prop}${dateBase}T${hh}${mm}${ss}`;
-              } catch (e) { return m; }
-            });
-
-            // Fallback: handle colon-form times like "9:00 AM" or "09:00AM"
-            s = s.replace(/^(DTSTART[^:]*:|DTEND[^:]*:|EXDATE[^:]*:|RECURRENCE-ID[^:]*:)(\d{4}-\d{2}-\d{2}T|\d{8}T|\d{4}-\d{2}-\d{2} )(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)/gim,
-                    (m, prop, datePrefix, h, mnt, sec, ampm) => {
-              try {
-                const hour = parseInt(h, 10);
-                const upper = (ampm || '').toUpperCase();
-                let newHour = hour % 12;
-                if (upper === 'PM') newHour += 12;
-                if (hour === 12 && upper === 'AM') newHour = 0;
-                const hh = String(newHour).padStart(2, '0');
-                const ssec = sec || '00';
-                // Normalize date base to YYYYMMDD
-                let dateBase = datePrefix.replace(/T$/, '').trim();
-                if (dateBase.indexOf('-') !== -1) dateBase = dateBase.replace(/-/g, '');
-                return `${prop}${dateBase}T${hh}${mnt}${ssec}`;
-              } catch (e) {
-                return m;
-              }
-            });
-
-            // Strip stray AM/PM tokens that might still remain at end of property values (e.g., "DTSTART:20260117T090000Am")
-            s = s.replace(/^(DTSTART[^:]*:)(.*?)(?:\s*(AM|PM))$/gim, (m, prop, val) => {
-              return `${prop}${val}`;
-            });
-
-            // Handle TZID with UTC offsets or city names for DTSTART/DTEND/EXDATE/RECURRENCE-ID
-            const tzCityMap = ['Amsterdam','Berlin','Vienna','Rome','Stockholm','London','Paris','Zurich','Bern'];
-            s = s.replace(/^(DTSTART|DTEND|EXDATE|RECURRENCE-ID)(;TZID="?([^";:\r\n]+)"?)?:(.*)$/gim, (m, prop, tzParam, tz, val) => {
-              if (!tz) return `${prop}:${val}`;
-              const off = tz.match(/UTC\s*([+-]\d{2}):?(\d{2})?/i);
-              if (off) {
-                // Convert date-times with UTC offset to Z-formatted UTC timestamps when possible
-                try {
-                  const parts = val.split(',');
-                  const out = parts.map(dt => {
-                    if (/^\d{8}$/.test(dt)) return dt; // date-only
-                    const mdt = dt.match(/^(\d{8}T\d{6})/);
-                    if (!mdt) return dt;
-                    const sdt = mdt[1];
-                    const y = parseInt(sdt.slice(0,4),10);
-                    const mo = parseInt(sdt.slice(4,6),10);
-                    const d = parseInt(sdt.slice(6,8),10);
-                    const hh = parseInt(sdt.slice(9,11),10);
-                    const mm = parseInt(sdt.slice(11,13),10);
-                    const ss = parseInt(sdt.slice(13,15),10);
-                    const sign = off[1].startsWith('-') ? -1 : 1;
-                    const oh = parseInt(off[1].slice(1,3),10);
-                    const om = parseInt(off[2] || '0',10);
-                    const offsetMinutes = sign * (oh*60 + om);
-                    const dtObj = new Date(Date.UTC(y, mo-1, d, hh, mm, ss));
-                    // shift by offset to UTC
-                    const utcMs = dtObj.getTime() - offsetMinutes*60*1000;
-                    const utc = new Date(utcMs);
-                    const YYYY = utc.getUTCFullYear();
-                    const MM = String(utc.getUTCMonth()+1).padStart(2,'0');
-                    const DD = String(utc.getUTCDate()).padStart(2,'0');
-                    const H = String(utc.getUTCHours()).padStart(2,'0');
-                    const Min = String(utc.getUTCMinutes()).padStart(2,'0');
-                    const S = String(utc.getUTCSeconds()).padStart(2,'0');
-                    return `${YYYY}${MM}${DD}T${H}${Min}${S}Z`;
-                  });
-                  return `${prop}:${out.join(',')}`;
-                } catch (e) {
-                  return `${prop}:${val}`;
-                }
-              }
-              const found = tzCityMap.find(c => tz.indexOf(c) !== -1);
-              if (found) return `${prop};TZID=Europe/${found}:${val}`;
-              // Last resort: drop the TZID and keep the value
-              return `${prop}:${val}`;
-            });
-
-            // Remove remaining bad TZID params that contain spaces, commas, or parentheses
-            s = s.replace(/;TZID="?[^:\r\n\"]*[ \t,\(\)][^:\r\n\"]*"?/g, '');
-
-            // Fix colon folds (where colon moved to next folded line)
-            s = s.replace(/\r?\n\s*:/g, ':');
-
-            return s;
-          } catch (e) {
-            console.warn('Normalization failed', e);
-            return s;
-          }
-        }
-
-        const normalizedIcs = normalizeIcs(icsText);
-        // Ensure `comp` is available in the outer scope so later code can reference it even if parsing falls back
-        let comp = null;
-        try {
-          // Try parsing normalized text; fallback to raw if parse fails
-          let beforeCount = null;
-          try { const cb = new ICAL.Component(ICAL.parse(icsText)); beforeCount = cb.getAllSubcomponents('vevent').length; } catch(e){}
-          const jcal = ICAL.parse(normalizedIcs);
-          comp = new ICAL.Component(jcal);
-          try { const ca = new ICAL.Component(ICAL.parse(normalizedIcs)); console.info('VEVENTs parsed: before=%s after=%s', beforeCount === null ? 'unknown' : beforeCount, ca.getAllSubcomponents('vevent').length); } catch(e){}
-        } catch (err) {
-          // If normalized parse fails, attempt raw parse for diagnostics
-          try {
-            const jcal = ICAL.parse(icsText);
-            comp = new ICAL.Component(jcal);
-            console.info('VEVENTs parsed (raw only) =', comp.getAllSubcomponents('vevent').length);
-          } catch (err2) {
-            throw err; // rethrow the original normalized parse error
-          }
-        }
-        // 'comp' variable is defined (or null if both parses failed); we keep using that as before.
-
-        // Build VEVENTs safely: skip faulty events and collect diagnostic info.
-        // Recurring events (RRULE/RDATE) are expanded into individual occurrences.
-        const _totalVevents = comp.getAllSubcomponents('vevent').length;
-        let _skippedNoStart = 0;
-        let _skippedException = 0;
-        const _skippedNoStartSamples = [];
-        const _skippedExceptionSamples = [];
-
-        // Helper: resolve color for a summary string
-        function resolveColor(ev, origSummary) {
-          let color = null;
-          if (typeof window.EVENT_COLOR_MAP !== 'undefined' && origSummary) {
-            const _labelMatch = origSummary.match(/\[([^\]]+)\]$/);
-            const _label = _labelMatch ? _labelMatch[1] : null;
-            color = window.EVENT_COLOR_MAP[origSummary]
-              || window.EVENT_COLOR_MAP[origSummary.toLowerCase()]
-              || (_label ? window.EVENT_COLOR_MAP[_label] || window.EVENT_COLOR_MAP[_label.toLowerCase()] : null)
-              || null;
-          }
-          if (!color) {
-            color = ev.getFirstPropertyValue('x-color') || ev.getFirstPropertyValue('color') || null;
-          }
-          return color;
-        }
-
-        // Expansion window: 180 days before and 365 days after today
-        const _expandStart = ICAL.Time.fromJSDate(new Date(Date.now() - 180*86400000));
-        const _expandEnd   = ICAL.Time.fromJSDate(new Date(Date.now() + 365*86400000));
-        // Maximum occurrences per recurring event that fall inside the window
-        const _maxOccurrences = 730;
-        // Hard cap on iterator steps (including occurrences before the window) against runaway rules
-        const _maxIterations = 100000;
-
-        // Collect RECURRENCE-ID overrides keyed by UID so we can apply them during expansion
-        const _overridesByUid = {};
-        comp.getAllSubcomponents('vevent').forEach(ev => {
-          const recId = ev.getFirstPropertyValue('recurrence-id');
-          if (recId) {
-            const uid = ev.getFirstPropertyValue('uid') || '';
-            if (!_overridesByUid[uid]) _overridesByUid[uid] = {};
-            const key = recId.toICALString ? recId.toICALString() : String(recId);
-            _overridesByUid[uid][key] = ev;
-          }
-        });
-
-        let vevents = [];
-        comp.getAllSubcomponents('vevent').forEach(ev => {
-          try {
-            const e = new ICAL.Event(ev);
-
-            // Skip RECURRENCE-ID overrides here – they are handled during expansion
-            if (ev.getFirstPropertyValue('recurrence-id')) return;
-
-            // Ensure we have a valid start date
-            if (!e.startDate) {
-              _skippedNoStart++;
-              const uid = ev.getFirstPropertyValue('uid') || '(no-uid)';
-              const summary = (ev.getFirstPropertyValue('x-orig-summary') || e.summary || '').toString();
-              if (_skippedNoStartSamples.length < 10) _skippedNoStartSamples.push({ uid, summary });
-              return;
-            }
-
-            const origSummary = ev.getFirstPropertyValue('x-orig-summary') || e.summary || '';
-            const color = resolveColor(ev, origSummary);
-            const backgroundColor = color || null;
-            const textColor = color ? readableTextColor(color) : null;
-
-            // Check if this event is recurring
-            const rruleProp = ev.getFirstPropertyValue('rrule');
-            const rdateProp = ev.getFirstProperty('rdate');
-            const isRecurring = !!(rruleProp || rdateProp);
-
-            if (isRecurring) {
-              // Expand recurring event into individual occurrences
-              try {
-                const duration = e.duration; // ICAL.Duration
-                const iter = e.iterator();
-                let count = 0;
-                let iterations = 0;
-                let next;
-                while ((next = iter.next()) && count < _maxOccurrences && iterations < _maxIterations) {
-                  iterations++;
-                  // Stop expanding past the window
-                  if (next.compare(_expandEnd) > 0) break;
-                  // Skip occurrences before the window
-                  if (next.compare(_expandStart) < 0) continue;
-                  count++;
-
-                  // Check if this occurrence has a RECURRENCE-ID override
-                  const uid = ev.getFirstPropertyValue('uid') || '';
-                  const overrides = _overridesByUid[uid];
-                  const occKey = next.toICALString ? next.toICALString() : String(next);
-                  if (overrides && overrides[occKey]) {
-                    // Use the override event instead
-                    const ovEv = overrides[occKey];
-                    const ovE = new ICAL.Event(ovEv);
-                    const ovSummary = ovEv.getFirstPropertyValue('x-orig-summary') || ovE.summary || '';
-                    const ovColor = resolveColor(ovEv, ovSummary);
-                    const ovBg = ovColor || null;
-                    const ovText = ovColor ? readableTextColor(ovColor) : null;
-                    vevents.push({
-                      title: ovE.summary || '',
-                      start: ovE.startDate ? ovE.startDate.toJSDate().toISOString() : next.toJSDate().toISOString(),
-                      end: ovE.endDate ? ovE.endDate.toJSDate().toISOString() : null,
-                      isDate: !!(ovE.startDate || next).isDate,
-                      backgroundColor: ovBg,
-                      borderColor: ovBg,
-                      textColor: ovText
-                    });
-                    continue;
-                  }
-
-                  // Regular occurrence
-                  const occStart = next.toJSDate().toISOString();
-                  let occEnd = null;
-                  if (duration) {
-                    const endTime = next.clone();
-                    endTime.addDuration(duration);
-                    occEnd = endTime.toJSDate().toISOString();
-                  }
-                  vevents.push({
-                    title: e.summary || '',
-                    start: occStart,
-                    end: occEnd,
-                    isDate: !!next.isDate,
-                    backgroundColor: backgroundColor,
-                    borderColor: backgroundColor,
-                    textColor: textColor
-                  });
-                }
-              } catch (recurErr) {
-                // If recurrence expansion fails, fall back to single instance
-                console.warn('Recurrence expansion failed, using single instance:', e.summary, recurErr);
-                vevents.push({
-                  title: e.summary || '',
-                  start: e.startDate.toJSDate().toISOString(),
-                  end: e.endDate ? e.endDate.toJSDate().toISOString() : null,
-                  isDate: !!e.startDate.isDate,
-                  backgroundColor: backgroundColor,
-                  borderColor: backgroundColor,
-                  textColor: textColor
-                });
-              }
-            } else {
-              // Non-recurring event: add as single instance
-              vevents.push({
-                title: e.summary || '',
-                start: e.startDate.toJSDate().toISOString(),
-                end: e.endDate ? e.endDate.toJSDate().toISOString() : null,
-                isDate: !!e.startDate.isDate,
-                backgroundColor: backgroundColor,
-                borderColor: backgroundColor,
-                textColor: textColor
-              });
-            }
-          } catch (err) {
-            _skippedException++;
-            const uid = ev.getFirstPropertyValue('uid') || '(no-uid)';
-            const summary = (ev.getFirstPropertyValue('x-orig-summary') || ev.getFirstPropertyValue('summary') || '').toString();
-            if (_skippedExceptionSamples.length < 10) _skippedExceptionSamples.push({ uid, summary, error: (err && err.message) || String(err) });
-            console.warn('Skipping faulty VEVENT:', uid, summary, err);
-          }
-        });
-
-        // Drop timed events with zero duration (no end or end === start) — they display misleadingly.
-        // All-day (DATE) events are exempt: every start is an ISO string, so the date-only case must be flagged explicitly.
-        const _isZeroDurationTimed = ev => !ev.isDate && (!ev.end || ev.end === ev.start);
-        const _skippedZeroDuration = vevents.filter(_isZeroDurationTimed).length;
-        if (_skippedZeroDuration > 0) vevents = vevents.filter(ev => !_isZeroDurationTimed(ev));
-
-        const _includedEvents = vevents.length;
-
-        const calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
-          initialView: 'timeGridWeek',
-          firstDay: 1, // Monday as first day of week
-          height: '100%',
-          headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' },
-          // Header formatting per view:
-          dayHeaderContent: function(arg) {
-            try {
-              const viewType = (arg.view && arg.view.type) ? arg.view.type.toLowerCase() : '';
-              const date = arg.date;
-
-              // Month view: short weekday name with first letter capitalized (e.g., 'Sun', 'Mon')
-              if (viewType.indexOf('month') !== -1) {
-                const short = date.toLocaleDateString(undefined, { weekday: 'short' });
-                return { html: String(short).charAt(0).toUpperCase() + String(short).slice(1).toLowerCase() };
-              }
-
-              // Week view: short weekday name with first letter capitalized (e.g., 'Sun', 'Mon') and day number (e.g., 'Monday 25')
-              if (viewType.indexOf('week') !== -1) {
-                const weekday = date.toLocaleDateString(undefined, { weekday: 'short' });
-                const d = date.getDate();
-                return { html: `${weekday.charAt(0).toUpperCase() + weekday.slice(1).toLowerCase()} ${d}` };
-              }
-
-              // Day view: full weekday name only (e.g., 'Monday')
-              if (viewType.indexOf('day') !== -1) {
-                const weekday = date.toLocaleDateString(undefined, { weekday: 'long' });
-                return { html: weekday };
-              }
-
-              // Fallback: short weekday
-              const fallback = date.toLocaleDateString(undefined, { weekday: 'short' });
-              return { html: fallback };
-            } catch (e) {
-              return { html: '' };
-            }
-          },
-          events: vevents,
-          // Show event times in 24-hour format (no AM/PM)
-          eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
-          // Ensure the time grid slot labels (left column in week/day views) use 24-hour format as well
-          slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false }
-        });
-        calendar.render();
-
-        // If any VEVENTs were skipped due to being faulty, show a small non-intrusive notice with breakdown
-        const totalSkipped = _skippedNoStart + _skippedException + _skippedZeroDuration;
-        if (window.ICS_DEBUG !== false && totalSkipped > 0) {
-          const note = document.createElement('span');
-          note.style.marginLeft = '0.75rem';
-          note.style.color = '#b45309';
-          note.style.fontSize = '0.9rem';
-          const parts = [];
-          if (_skippedNoStart) parts.push(`${_skippedNoStart} no-start`);
-          if (_skippedException) parts.push(`${_skippedException} parse errors`);
-          if (_skippedZeroDuration) parts.push(`${_skippedZeroDuration} zero-duration`);
-          note.textContent = ` (skipped ${totalSkipped} events: ${parts.join(', ')})`;
-          infoEl.appendChild(note);
-
-          // Add a details button to show inline diagnostics (so users don't need DevTools)
-          const detailsBtn = document.createElement('button');
-          detailsBtn.type = 'button';
-          detailsBtn.textContent = 'Details';
-          detailsBtn.style.marginLeft = '0.5rem';
-          detailsBtn.style.fontSize = '0.9rem';
-          detailsBtn.style.cursor = 'pointer';
-          detailsBtn.style.border = '1px solid #cbd5e1';
-          detailsBtn.style.borderRadius = '4px';
-          detailsBtn.style.padding = '0.15rem 0.5rem';
-          detailsBtn.onclick = () => {
-            debugPanel.style.display = debugPanel.style.display === 'none' ? 'block' : 'none';
-          };
-          infoEl.appendChild(detailsBtn);
-
-          // Inline debug panel (hidden by default)
-          const debugPanel = document.createElement('div');
-          debugPanel.style.marginTop = '0.5rem';
-          debugPanel.style.padding = '0.75rem';
-          debugPanel.style.background = '#fff7ed';
-          debugPanel.style.border = '1px solid #f0ab00';
-          debugPanel.style.borderRadius = '6px';
-          debugPanel.style.color = '#92400e';
-          debugPanel.style.fontSize = '0.9rem';
-          debugPanel.style.display = 'none';
-          debugPanel.id = 'ics-debug-panel';
-
-          const summaryText = document.createElement('div');
-          summaryText.textContent = `Parsed VEVENTs: total=${_totalVevents}, included=${_includedEvents}, skipped=${totalSkipped}`;
-          debugPanel.appendChild(summaryText);
-
-          if (_skippedNoStartSamples.length) {
-            const h = document.createElement('div'); h.style.fontWeight = '600'; h.style.marginTop = '0.5rem'; h.textContent = `Samples (no-start, showing up to ${Math.min(50, _skippedNoStartSamples.length)}):`;
-            debugPanel.appendChild(h);
-            const ul = document.createElement('ul'); ul.style.margin = '0.25rem 0 0 1rem';
-            _skippedNoStartSamples.slice(0,50).forEach(s => {
-              const li = document.createElement('li'); li.textContent = `${s.uid} — ${s.summary}`; ul.appendChild(li);
-            });
-            debugPanel.appendChild(ul);
-          }
-
-          if (_skippedExceptionSamples.length) {
-            const h2 = document.createElement('div'); h2.style.fontWeight = '600'; h2.style.marginTop = '0.5rem'; h2.textContent = `Samples (parse exceptions, showing up to ${Math.min(50, _skippedExceptionSamples.length)}):`;
-            debugPanel.appendChild(h2);
-            const ul2 = document.createElement('ul'); ul2.style.margin = '0.25rem 0 0 1rem';
-            _skippedExceptionSamples.slice(0,50).forEach(s => {
-              const li = document.createElement('li'); li.textContent = `${s.uid} — ${s.summary} — ${s.error}`; ul2.appendChild(li);
-            });
-            debugPanel.appendChild(ul2);
-          }
-
-          // Download JSON button for full samples (helps offline debugging)
-          const dlBtn = document.createElement('button');
-          dlBtn.type = 'button';
-          dlBtn.textContent = 'Download debug JSON';
-          dlBtn.style.marginTop = '0.5rem';
-          dlBtn.style.fontSize = '0.9rem';
-          dlBtn.style.cursor = 'pointer';
-          dlBtn.style.border = '1px solid #cbd5e1';
-          dlBtn.style.borderRadius = '4px';
-          dlBtn.style.padding = '0.15rem 0.5rem';
-          dlBtn.onclick = () => {
-            const payload = {
-              total: _totalVevents,
-              included: _includedEvents,
-              skipped_no_start: _skippedNoStart,
-              skipped_exceptions: _skippedException,
-              skipped_zero_duration: _skippedZeroDuration,
-              samples_no_start: _skippedNoStartSamples,
-              samples_exceptions: _skippedExceptionSamples
-            };
-            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a'); a.href = url; a.download = `${token}_ics_debug.json`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-          };
-          debugPanel.appendChild(dlBtn);
-
-          infoEl.appendChild(debugPanel);
-
-          // Console diagnostics (limited samples) to help troubleshoot why events were skipped
-          console.info(`Parsed VEVENTs: total=${_totalVevents}, included=${_includedEvents}, skipped=${totalSkipped}`);
-          if (_skippedNoStartSamples.length) console.info('Samples of events skipped (no start):', _skippedNoStartSamples);
-          if (_skippedExceptionSamples.length) console.info('Samples of events skipped (exceptions):', _skippedExceptionSamples);
-          if (_skippedZeroDuration) console.info(`Skipped ${_skippedZeroDuration} timed events with zero duration (no DTEND or DTEND = DTSTART).`);
+        } else {
+          events.push(makeEvent(ev, e, toFcTimes(e.startDate, e.endDate), false));
         }
       } catch (err) {
-        // The message can echo ICS content (e.g. a parse error quoting the offending line), so never render it as HTML
-        const errBox = document.createElement('div');
-        errBox.style.padding = '1rem';
-        errBox.style.color = '#900';
-        errBox.textContent = `Error loading calendar: ${err}`;
-        document.body.replaceChildren(errBox);
+        stats.skippedException++;
+        const uid = ev.getFirstPropertyValue('uid') || '(no-uid)';
+        const summary = (ev.getFirstPropertyValue('x-orig-summary') || ev.getFirstPropertyValue('summary') || '').toString();
+        if (stats.samplesExceptions.length < 10) stats.samplesExceptions.push({ uid, summary, error: (err && err.message) || String(err) });
+        console.warn('Skipping faulty VEVENT:', uid, summary, err);
       }
-    })();
+    });
+
+    // Drop timed events with zero duration (no end or end === start) — they display misleadingly.
+    // All-day events are exempt: FullCalendar renders them as a single day.
+    const zeroTimed = ev => !ev.allDay && (!ev.end || ev.end === ev.start);
+    stats.skippedZeroDuration = events.filter(zeroTimed).length;
+    if (stats.skippedZeroDuration > 0) events = events.filter(ev => !zeroTimed(ev));
+    stats.included = events.length;
+    return { events, stats };
+  }
+
+  // Legend entries: only config-map colors that actually matched an event in the data
+  function legendEntries(events) {
+    const seen = new Map();
+    events.forEach(ev => {
+      const p = ev.extendedProps;
+      if (p.legendKey && !seen.has(p.legendKey)) seen.set(p.legendKey, { label: p.legendLabel, color: window.EVENT_COLOR_MAP[p.legendKey] });
+    });
+    return Array.from(seen.values());
+  }
+
+  // Calendar name (X-WR-CALNAME) and last-updated time (Last-Modified header, else newest DTSTAMP/LAST-MODIFIED)
+  function calendarName(comp) {
+    try { return String(comp.getFirstPropertyValue('x-wr-calname') || '').trim(); } catch (e) { return ''; }
+  }
+  function deriveLastUpdated(resp, comp) {
+    try {
+      const header = resp.headers.get('last-modified');
+      if (header) { const d = new Date(header); if (!isNaN(d)) return d; }
+      let max = null;
+      comp.getAllSubcomponents('vevent').forEach(ev => {
+        ['last-modified', 'dtstamp'].forEach(p => {
+          const v = ev.getFirstPropertyValue(p);
+          if (v && v.toJSDate) { const d = v.toJSDate(); if (!isNaN(d) && (!max || d > max)) max = d; }
+        });
+      });
+      return max;
+    } catch (e) { return null; }
+  }
+
+  // ------------------------------------------------------------------
+  // 5. UI: theme, subscribe menu, state, legend, dialog, calendar, debug panel
+  // ------------------------------------------------------------------
+  const THEME_KEY = 'icalsynchub-theme';
+  const THEME_ORDER = ['auto', 'light', 'dark'];
+  function storedTheme() {
+    try { const v = localStorage.getItem(THEME_KEY); return v === 'light' || v === 'dark' ? v : 'auto'; } catch (e) { return 'auto'; }
+  }
+  function setupTheme() {
+    const btn = $('themeBtn');
+    let current = storedTheme();
+    const paint = () => {
+      if (current === 'auto') delete document.documentElement.dataset.theme;
+      else document.documentElement.dataset.theme = current;
+      btn.textContent = STRINGS.themeIcon[current];
+      btn.setAttribute('aria-label', STRINGS.theme[current]);
+      btn.setAttribute('title', STRINGS.theme[current]);
+    };
+    btn.addEventListener('click', () => {
+      current = THEME_ORDER[(THEME_ORDER.indexOf(current) + 1) % THEME_ORDER.length];
+      try { if (current === 'auto') localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, current); } catch (e) {}
+      paint();
+    });
+    paint();
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+  }
+
+  function setupSubscribe(absoluteIcsUrl) {
+    const btn = $('subscribeBtn');
+    const menu = $('subscribeMenu');
+    const copyBtn = $('copyIcsBtn');
+    const webcalUrl = absoluteIcsUrl.replace(/^https?:/i, 'webcal:');
+    $('icsUrl').value = absoluteIcsUrl;
+    $('webcalLink').href = webcalUrl;
+    $('googleLink').href = 'https://calendar.google.com/calendar/r?cid=' + encodeURIComponent(webcalUrl);
+    copyBtn.textContent = STRINGS.copyUrl;
+
+    const setOpen = open => {
+      menu.hidden = !open;
+      btn.setAttribute('aria-expanded', String(open));
+    };
+    btn.addEventListener('click', () => {
+      setOpen(menu.hidden);
+      if (!menu.hidden) $('icsUrl').focus();
+    });
+    document.addEventListener('keydown', ev => {
+      if (ev.key === 'Escape' && !menu.hidden) { setOpen(false); btn.focus(); }
+    });
+    document.addEventListener('click', ev => {
+      if (!menu.hidden && !menu.contains(ev.target) && !btn.contains(ev.target)) setOpen(false);
+    });
+    $('icsUrl').addEventListener('focus', ev => ev.target.select());
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await copyText(absoluteIcsUrl);
+        copyBtn.textContent = STRINGS.copied;
+      } catch (e) {
+        console.error('Copy failed', e);
+        copyBtn.textContent = STRINGS.copyFailed;
+      }
+      setTimeout(() => { copyBtn.textContent = STRINGS.copyUrl; }, 2000);
+    });
+  }
+
+  function showState(which) {
+    $('loading').hidden = which !== 'loading';
+    $('error').hidden = which !== 'error';
+    $('calendar').hidden = which !== 'calendar';
+  }
+
+  // Error text can echo ICS content (e.g. a parse error quoting the offending line): only ever set via textContent
+  function showError(err) {
+    const box = $('error');
+    box.replaceChildren(
+      el('h2', { text: STRINGS.error.title }),
+      el('details', null, el('summary', { text: STRINGS.error.technical }), el('pre', { text: String(err) })),
+      el('button', { type: 'button', class: 'btn btn-primary', id: 'retryBtn', text: STRINGS.error.retry })
+    );
+    $('retryBtn').addEventListener('click', () => window.location.reload());
+    showState('error');
+    console.error(err);
+  }
+
+  function renderLegend(events) {
+    const entries = legendEntries(events);
+    const ul = $('legend');
+    ul.replaceChildren(...entries.map(en => el('li', null,
+      el('span', { class: 'swatch', 'aria-hidden': 'true', style: { 'background-color': en.color } }),
+      el('span', { text: en.label }))));
+    ul.hidden = entries.length === 0;
+  }
+
+  function renderUpdated(date) {
+    const p = $('updated');
+    if (!date) { p.hidden = true; return; }
+    const fmt = new Intl.DateTimeFormat(LOCALE, { dateStyle: 'medium', timeStyle: 'short', hour12: false });
+    p.replaceChildren(`${STRINGS.lastUpdated}: `, el('time', { datetime: date.toISOString(), text: fmt.format(date) }));
+    p.hidden = false;
+  }
+
+  // ---- Event dialog ----
+  const URL_RE = /https?:\/\/[^\s<>"]+|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
+  // Text -> nodes; only http(s) and mailto links are created, everything else stays text
+  function linkify(text) {
+    const nodes = [];
+    let last = 0;
+    for (const m of text.matchAll(URL_RE)) {
+      let raw = m[0];
+      const trail = (raw.match(/[.,;:!?)\]}'"]+$/) || [''])[0];
+      if (trail) raw = raw.slice(0, -trail.length);
+      let href = null;
+      if (/^https?:/i.test(raw)) { try { const u = new URL(raw); if (u.protocol === 'http:' || u.protocol === 'https:') href = u.href; } catch (e) {} }
+      else if (raw.indexOf('@') > 0) href = 'mailto:' + raw;
+      if (!href) continue;
+      if (m.index > last) nodes.push(text.slice(last, m.index));
+      nodes.push(el('a', { href, target: '_blank', rel: 'noopener noreferrer nofollow', text: raw }));
+      last = m.index + raw.length;
+    }
+    if (last < text.length) nodes.push(text.slice(last));
+    return nodes;
+  }
+
+  const fmtDay = new Intl.DateTimeFormat(LOCALE, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  const fmtTime = new Intl.DateTimeFormat(LOCALE, { hour: '2-digit', minute: '2-digit', hour12: false });
+  function formatWhen(ev) {
+    const start = ev.start;
+    if (!start) return '';
+    if (ev.allDay) {
+      // FullCalendar's all-day end is exclusive
+      const lastDay = ev.end ? new Date(ev.end.getFullYear(), ev.end.getMonth(), ev.end.getDate() - 1) : start;
+      const days = lastDay > start ? `${fmtDay.format(start)} – ${fmtDay.format(lastDay)}` : fmtDay.format(start);
+      return `${days} · ${STRINGS.dialog.allDay}`;
+    }
+    const end = ev.end;
+    if (!end) return `${fmtDay.format(start)} · ${fmtTime.format(start)}`;
+    if (start.toDateString() === end.toDateString()) return `${fmtDay.format(start)} · ${fmtTime.format(start)} – ${fmtTime.format(end)}`;
+    return `${fmtDay.format(start)}, ${fmtTime.format(start)} – ${fmtDay.format(end)}, ${fmtTime.format(end)}`;
+  }
+
+  // Anonymized events are titled "Busy" / "Free", optionally followed by " [label]"
+  const ANON_RE = /^(Busy|Free)(?: \[[^\]]*\])?$/;
+
+  let dialogTrigger = null;
+  function openEventDialog(ev, trigger) {
+    const dlg = $('eventDialog');
+    dialogTrigger = trigger || null;
+    const p = ev.extendedProps;
+    const anon = ANON_RE.test(ev.title);
+    const facts = el('dl', { class: 'facts' });
+    const fact = (label, ...content) => facts.append(el('div', null, el('dt', { text: label }), el('dd', null, ...content)));
+
+    fact(STRINGS.dialog.when, formatWhen(ev), p.recurring ? el('div', { class: 'muted', text: STRINGS.dialog.recurring }) : null);
+    if (!anon && p.location) fact(STRINGS.dialog.where, ...linkify(p.location));
+    if (!anon && p.description) { const dd = el('div', { class: 'desc' }); dd.append(...linkify(p.description)); fact(STRINGS.dialog.description, dd); }
+    if (p.label) fact(STRINGS.dialog.source, el('span', { class: 'chip', text: p.label }));
+
+    const closeBtn = el('button', { type: 'button', class: 'btn', text: STRINGS.dialog.close });
+    closeBtn.addEventListener('click', () => dlg.close());
+    const title = ev.title ? (p.baseTitle || ev.title) : STRINGS.untitled;
+    dlg.replaceChildren(el('div', { class: 'dlg', style: ev.backgroundColor ? { '--ev-color': ev.backgroundColor } : {} },
+      el('div', { class: 'dlg-head' }, el('h2', { id: 'dlgTitle', text: title }), closeBtn),
+      facts));
+    dlg.showModal();
+  }
+
+  function setupDialog() {
+    // Clicking the backdrop (the dialog element itself, outside .dlg) closes the sheet
+    $('eventDialog').addEventListener('click', ev => { if (ev.target === ev.currentTarget) ev.currentTarget.close(); });
+    // Hand focus back to the event that opened the sheet so keyboard users keep their place
+    $('eventDialog').addEventListener('close', () => {
+      if (dialogTrigger && dialogTrigger.isConnected) dialogTrigger.focus();
+      dialogTrigger = null;
+    });
+  }
+
+  // ---- Calendar ----
+  const NARROW = window.matchMedia('(max-width: 767.98px)');
+  const VIEW_ORDER = ['listWeek', 'timeGridDay', 'timeGridWeek', 'dayGridMonth'];
+
+  function createCalendar(host, events) {
+    const C = STRINGS.calendar;
+    let userPickedView = false;
+    const now = new Date();
+    const calendar = new FullCalendar.Calendar(host, {
+      locale: LOCALE,
+      firstDay: 1, // Monday as first day of week
+      initialView: NARROW.matches ? 'listWeek' : 'timeGridWeek',
+      height: '100%',
+      headerToolbar: { left: 'title', right: 'prev,today,next' },
+      buttonText: { today: C.today, prev: '‹', next: '›' },
+      buttonHints: { prev: C.prevHint, next: C.nextHint, today: C.todayHint },
+      navLinks: true,
+      navLinkHint: C.navLinkHint,
+      nowIndicator: true,
+      allDayText: C.allDay,
+      noEventsText: C.noEvents,
+      weekText: C.week,
+      moreLinkText: n => (NARROW.matches ? C.moreShort(n) : C.more(n)),
+      moreLinkHint: C.moreHint,
+      dayMaxEvents: true,
+      eventInteractive: true,
+      scrollTime: String(Math.max(0, now.getHours() - 1)).padStart(2, '0') + ':00:00',
+      views: {
+        dayGridMonth: { dayHeaderFormat: { weekday: 'short' } },
+        timeGridWeek: { dayHeaderFormat: { weekday: 'short', day: 'numeric' } },
+        timeGridDay: { dayHeaderFormat: { weekday: 'long', day: 'numeric', month: 'long' } },
+      },
+      events: events,
+      // Show event times in 24-hour format (no AM/PM), also for the slot labels in week/day views
+      eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
+      slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
+      eventClick: info => { info.jsEvent.preventDefault(); openEventDialog(info.event, info.el); },
+      datesSet: arg => syncViewButtons(arg.view.type),
+    });
+
+    const group = $('viewSwitch');
+    group.replaceChildren(...VIEW_ORDER.map(v => {
+      const b = el('button', { type: 'button', class: 'btn', 'data-view': v, 'aria-pressed': 'false', text: STRINGS.views[v] });
+      b.addEventListener('click', () => { userPickedView = true; calendar.changeView(v); });
+      return b;
+    }));
+    function syncViewButtons(type) {
+      group.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === type)));
+    }
+
+    // Phones default to the agenda list, larger screens to the week grid, until the user chooses a view themselves
+    NARROW.addEventListener('change', e => {
+      if (!userPickedView) calendar.changeView(e.matches ? 'listWeek' : 'timeGridWeek');
+    });
+    return calendar;
+  }
+
+  // ---- Debug panel (only when ICS_DEBUG !== false and events were skipped) ----
+  function renderDebug(stats, token) {
+    const totalSkipped = stats.skippedNoStart + stats.skippedException + stats.skippedZeroDuration;
+    if (window.ICS_DEBUG === false || totalSkipped <= 0) return;
+    const D = STRINGS.debug;
+    const parts = [];
+    if (stats.skippedNoStart) parts.push(D.noStart(stats.skippedNoStart));
+    if (stats.skippedException) parts.push(D.parseErrors(stats.skippedException));
+    if (stats.skippedZeroDuration) parts.push(D.zeroDuration(stats.skippedZeroDuration));
+
+    const panel = el('div', { id: 'ics-debug-panel', hidden: true }, el('div', { text: D.summary(stats.total, stats.included, totalSkipped) }));
+    const addSamples = (heading, samples, line) => {
+      if (!samples.length) return;
+      panel.append(el('div', { class: 'h', text: heading(Math.min(50, samples.length)) }),
+        el('ul', null, ...samples.slice(0, 50).map(s => el('li', { text: line(s) }))));
+    };
+    addSamples(D.samplesNoStart, stats.samplesNoStart, s => `${s.uid} — ${s.summary}`);
+    addSamples(D.samplesExceptions, stats.samplesExceptions, s => `${s.uid} — ${s.summary} — ${s.error}`);
+
+    // Download JSON button for full samples (helps offline debugging)
+    const dl = el('button', { type: 'button', class: 'btn', text: D.download });
+    dl.addEventListener('click', () => {
+      const payload = {
+        total: stats.total,
+        included: stats.included,
+        skipped_no_start: stats.skippedNoStart,
+        skipped_exceptions: stats.skippedException,
+        skipped_zero_duration: stats.skippedZeroDuration,
+        samples_no_start: stats.samplesNoStart,
+        samples_exceptions: stats.samplesExceptions,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = el('a', { href: url, download: `${token}_ics_debug.json` });
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    });
+    panel.append(el('div', { class: 'h' }, dl));
+
+    const toggle = el('button', { type: 'button', class: 'btn', 'aria-expanded': 'false', 'aria-controls': 'ics-debug-panel', text: D.details });
+    toggle.addEventListener('click', () => {
+      panel.hidden = !panel.hidden;
+      toggle.setAttribute('aria-expanded', String(!panel.hidden));
+    });
+    const notice = $('notice');
+    notice.replaceChildren(el('div', { class: 'row' }, el('span', { text: D.skipped(totalSkipped, parts) }), toggle), panel);
+    notice.hidden = false;
+
+    // Console diagnostics (limited samples) to help troubleshoot why events were skipped
+    console.info(`Parsed VEVENTs: total=${stats.total}, included=${stats.included}, skipped=${totalSkipped}`);
+    if (stats.samplesNoStart.length) console.info('Samples of events skipped (no start):', stats.samplesNoStart);
+    if (stats.samplesExceptions.length) console.info('Samples of events skipped (exceptions):', stats.samplesExceptions);
+    if (stats.skippedZeroDuration) console.info(`Skipped ${stats.skippedZeroDuration} timed events with zero duration (no DTEND or DTEND = DTSTART).`);
+  }
+
+  // ------------------------------------------------------------------
+  // 6. Boot
+  // ------------------------------------------------------------------
+  async function main() {
+    applyStaticStrings();
+    setupTheme();
+    setupDialog();
+    $('calName').textContent = STRINGS.defaultCalendarName;
+    document.title = `${STRINGS.defaultCalendarName} – ${STRINGS.appName}`;
+
+    // Determine token/filename from the current path (e.g., /<token>.html)
+    const path = window.location.pathname;
+    const token = path.split('/').pop().replace('.html', '');
+    const icsUrl = `${token}.ics`;
+    const absoluteIcsUrl = new URL(icsUrl, window.location.href).toString();
+    setupSubscribe(absoluteIcsUrl);
+
+    try {
+      if (typeof FullCalendar === 'undefined' || typeof ICAL === 'undefined') throw new Error(STRINGS.error.libs);
+      showState('loading');
+      const resp = await fetch(icsUrl, { cache: 'no-cache' });
+      if (!resp.ok) throw new Error(STRINGS.error.fetch(resp.status));
+      const comp = parseIcs(await resp.text());
+      const { events, stats } = buildEvents(comp);
+
+      const name = calendarName(comp) || STRINGS.defaultCalendarName;
+      $('calName').textContent = name;
+      document.title = `${name} – ${STRINGS.appName}`;
+      renderUpdated(deriveLastUpdated(resp, comp));
+      renderLegend(events);
+
+      showState('calendar'); // must be visible before render so FullCalendar can measure it
+      createCalendar($('calendar'), events).render();
+      renderDebug(stats, token);
+    } catch (err) {
+      showError(err);
+    }
+  }
+  main();
+})();
   </script>
 </body>
 </html>

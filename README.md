@@ -8,7 +8,7 @@ iCalSyncHub is a lightweight Python tool with a Streamlit web interface that mer
 - **Date Range Filtering**: Optionally filter events to keep only a configurable time window (e.g., past 14 days and next 2 months).
 - **Custom Configuration**: Use a simple `.ini` file to configure calendar URLs, output location, sync frequency, and more.
 - **Portable Output**: Generates a standard `.ics` file compatible with popular calendar apps like Google Calendar, Outlook, and Apple Calendar.
-- **HTML Calendar Viewer**: Each token automatically generates a shareable HTML viewer page powered by FullCalendar, so users can view events in a browser without importing the ICS.
+- **HTML Calendar Viewer**: Each token automatically generates a shareable, responsive HTML viewer page (agenda list on phones, week view on desktop, light/dark theme, event details, subscribe actions) powered by FullCalendar, so users can view events in a browser without importing the ICS. See [HTML viewer](#html-viewer).
 - **Per-User Detail Control**: When `show_details = true` globally, each user token can independently be set to show full event details or anonymized availability (Busy/Free). An anonymized companion ICS is automatically generated alongside the main file.
 - **Token Expiry**: Tokens can have an optional expiration date/time. Expired tokens are automatically cleaned up (symlinks and viewer pages removed) on UI refresh and at the start of each sync loop.
 - **Settings Page**: A dedicated Streamlit page for editing every `config.ini` setting from the browser — output paths, sync schedule, event handling, logging, and the event colour map — and the calendar sources in `calendar_urls.txt`, with validation before anything is written. The comments in both files are preserved on save.
@@ -133,6 +133,34 @@ You can define event colors for the HTML viewer in two ways:
 - Per-event property in the ICS: set `X-COLOR` or `COLOR` on a VEVENT to specify its color. The viewer will fall back to this if no config mapping is found.
 
 Priority order: config `[colors]` mapping → `X-COLOR` / `COLOR` VEVENT property → calendar default styling.
+
+The `[colors]` lookup tries the original summary (`X-ORIG-SUMMARY`, else `SUMMARY`), its lowercase form, then the trailing `[label]` and its lowercase form. `config.ini` keys are read in lowercase, so `Vacation = #f97316` also matches an event called "Vacation". Anything the browser does not accept as a CSS color is ignored.
+
+### HTML viewer
+
+`viewer_template.html` is a single self-contained page. The Streamlit app copies it to `<output_path>/<token>.html` and fills in two placeholders, `<!--INJECT_EVENT_COLOR_MAP-->` (the `[colors]` map) and `<!--INJECT_DEBUG_MODE-->` (always disables the debug panel). The page loads `<token>.ics` from the same directory, so there is no backend and nothing to build.
+
+What the viewer offers:
+
+- **Views**: agenda list (default below 768 px) and week view (default above), plus day and month. The view switches automatically when the window is resized until the user picks one.
+- **Event details**: clicking or pressing Enter/Space on an event opens a dialog (a bottom sheet on phones) with the date and time range, location, description (links are clickable, nothing is rendered as HTML) and the source label. Anonymized events (`Busy`/`Free`, optionally `[label]`) only show the time and the label.
+- **Header**: calendar name (`X-WR-CALNAME` if present), last-updated time (the `Last-Modified` header of the ICS, else the newest `DTSTAMP`/`LAST-MODIFIED`), and a **Subscribe** menu with *copy ICS URL*, a `webcal://` link and *add to Google Calendar*. Google can only subscribe to publicly reachable URLs, and the link hands the secret ICS URL to Google, so it only happens when the user clicks it.
+- **Legend**: one entry for every `[colors]` entry that matches at least one event.
+- **Theme**: follows the OS (`prefers-color-scheme`) with a manual auto/light/dark toggle. The manual choice is stored in the browser's `localStorage` only.
+- **All-day events** appear in the all-day row; multi-day all-day events span the days.
+- **Accessibility**: keyboard navigation, visible focus, ARIA labels, and contrast of at least 4.5:1 in both themes (checked with axe-core).
+- **Language**: German (de-CH), 24-hour times, Monday first. Every text lives in the `STRINGS` object at the top of the script, so translating means editing that one object (and `LOCALE`).
+
+Parsing behaviour:
+
+- ICS text is first cleaned by `normalizeIcs()` (broken `TZID` values, AM/PM times, folded lines) and parsed with ical.js; if that fails, the raw text is parsed instead.
+- Recurring events are expanded from 180 days before to 365 days after today, honouring `EXDATE`, `RDATE` and `RECURRENCE-ID` overrides, with at most 730 occurrences inside that window per event.
+- Events without a start, events that fail to parse and timed events with zero duration are skipped.
+- When the template is opened without the Python injection (`window.ICS_DEBUG` undefined), a notice shows how many events were skipped, with details and a JSON download. Deployed viewers never show it.
+
+Privacy: no analytics or trackers, and the calendar data stays in the browser. The page loads FullCalendar 6.1.22 and ical.js 1.4.0 from jsDelivr with pinned versions and Subresource Integrity hashes. It sets `noindex` and `no-referrer`, so the secret URL is neither indexed nor leaked through the `Referer` header when a description link is opened.
+
+The viewer is copied per token, so after changing `viewer_template.html` or the `[colors]` section, use **Ensure Links for All Users** to regenerate the existing `.html` files.
 
 Example VEVENT snippet with `X-COLOR`:
 
