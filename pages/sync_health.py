@@ -37,7 +37,10 @@ if status is None:
 last_sync_str = status.get('last_sync', 'N/A')
 try:
     last_sync_dt = datetime.fromisoformat(last_sync_str)
-    last_sync_display = last_sync_dt.strftime("%Y-%m-%d %H:%M:%S")
+    # A metric truncates a value that is wider than its column, and a full
+    # timestamp is. Show the time as the value and the date underneath.
+    last_sync_display = last_sync_dt.strftime("%H:%M:%S")
+    last_sync_date = last_sync_dt.strftime("%Y-%m-%d")
     age = datetime.now() - last_sync_dt
     age_minutes = int(age.total_seconds() // 60)
     if age_minutes < 1:
@@ -48,6 +51,7 @@ try:
         age_label = f"{age_minutes // 60}h {age_minutes % 60}m ago"
 except Exception:
     last_sync_display = last_sync_str
+    last_sync_date = ""
     age_label = ""
 
 sources = status.get('sources', [])
@@ -57,7 +61,8 @@ total_events = status.get('total_events', 0)
 sync_duration = status.get('sync_duration', 0)
 
 mcol1, mcol2, mcol3, mcol4 = st.columns(4)
-mcol1.metric("Last Sync", last_sync_display, help=age_label)
+mcol1.metric("Last Sync", last_sync_display)
+mcol1.caption(" · ".join(part for part in (last_sync_date, age_label) if part))
 mcol2.metric("Duration", f"{sync_duration:.2f}s")
 mcol3.metric("Total Events", total_events)
 mcol4.markdown(f"**Sources**  \n:green[{ok_count} OK] / :red[{fail_count} Failed]")
