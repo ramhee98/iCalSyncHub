@@ -349,11 +349,13 @@
           return color;
         }
 
-        // Expansion window: 6 months before and after today
+        // Expansion window: 180 days before and 365 days after today
         const _expandStart = ICAL.Time.fromJSDate(new Date(Date.now() - 180*86400000));
         const _expandEnd   = ICAL.Time.fromJSDate(new Date(Date.now() + 365*86400000));
-        // Maximum occurrences per recurring event to avoid runaway loops
+        // Maximum occurrences per recurring event that fall inside the window
         const _maxOccurrences = 730;
+        // Hard cap on iterator steps (including occurrences before the window) against runaway rules
+        const _maxIterations = 100000;
 
         // Collect RECURRENCE-ID overrides keyed by UID so we can apply them during expansion
         const _overridesByUid = {};
@@ -400,13 +402,15 @@
                 const duration = e.duration; // ICAL.Duration
                 const iter = e.iterator();
                 let count = 0;
+                let iterations = 0;
                 let next;
-                while ((next = iter.next()) && count < _maxOccurrences) {
+                while ((next = iter.next()) && count < _maxOccurrences && iterations < _maxIterations) {
+                  iterations++;
                   // Stop expanding past the window
                   if (next.compare(_expandEnd) > 0) break;
-                  count++;
                   // Skip occurrences before the window
                   if (next.compare(_expandStart) < 0) continue;
+                  count++;
 
                   // Check if this occurrence has a RECURRENCE-ID override
                   const uid = ev.getFirstPropertyValue('uid') || '';
@@ -424,6 +428,7 @@
                       title: ovE.summary || '',
                       start: ovE.startDate ? ovE.startDate.toJSDate().toISOString() : next.toJSDate().toISOString(),
                       end: ovE.endDate ? ovE.endDate.toJSDate().toISOString() : null,
+                      isDate: !!(ovE.startDate || next).isDate,
                       backgroundColor: ovBg,
                       borderColor: ovBg,
                       textColor: ovText
@@ -443,6 +448,7 @@
                     title: e.summary || '',
                     start: occStart,
                     end: occEnd,
+                    isDate: !!next.isDate,
                     backgroundColor: backgroundColor,
                     borderColor: backgroundColor,
                     textColor: textColor
@@ -455,6 +461,7 @@
                   title: e.summary || '',
                   start: e.startDate.toJSDate().toISOString(),
                   end: e.endDate ? e.endDate.toJSDate().toISOString() : null,
+                  isDate: !!e.startDate.isDate,
                   backgroundColor: backgroundColor,
                   borderColor: backgroundColor,
                   textColor: textColor
@@ -466,6 +473,7 @@
                 title: e.summary || '',
                 start: e.startDate.toJSDate().toISOString(),
                 end: e.endDate ? e.endDate.toJSDate().toISOString() : null,
+                isDate: !!e.startDate.isDate,
                 backgroundColor: backgroundColor,
                 borderColor: backgroundColor,
                 textColor: textColor
@@ -480,9 +488,11 @@
           }
         });
 
-        // Drop timed events with zero duration (no end or end === start) — they display misleadingly
-        const _skippedZeroDuration = vevents.filter(ev => ev.start.includes('T') && (!ev.end || ev.end === ev.start)).length;
-        if (_skippedZeroDuration > 0) vevents = vevents.filter(ev => !(ev.start.includes('T') && (!ev.end || ev.end === ev.start)));
+        // Drop timed events with zero duration (no end or end === start) — they display misleadingly.
+        // All-day (DATE) events are exempt: every start is an ISO string, so the date-only case must be flagged explicitly.
+        const _isZeroDurationTimed = ev => !ev.isDate && (!ev.end || ev.end === ev.start);
+        const _skippedZeroDuration = vevents.filter(_isZeroDurationTimed).length;
+        if (_skippedZeroDuration > 0) vevents = vevents.filter(ev => !_isZeroDurationTimed(ev));
 
         const _includedEvents = vevents.length;
 
@@ -631,7 +641,12 @@
           if (_skippedZeroDuration) console.info(`Skipped ${_skippedZeroDuration} timed events with zero duration (no DTEND or DTEND = DTSTART).`);
         }
       } catch (err) {
-        document.body.innerHTML = `<div style="padding:1rem; color:#900">Error loading calendar: ${err}</div>`;
+        // The message can echo ICS content (e.g. a parse error quoting the offending line), so never render it as HTML
+        const errBox = document.createElement('div');
+        errBox.style.padding = '1rem';
+        errBox.style.color = '#900';
+        errBox.textContent = `Error loading calendar: ${err}`;
+        document.body.replaceChildren(errBox);
       }
     })();
   </script>
