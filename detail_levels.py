@@ -89,6 +89,33 @@ def route_target(main_path, global_level, user_level):
     return companion_path(main_path, level)
 
 
+def level_of_path(main_path, global_level, path):
+    """The level held by `path` (the main file or one of its companions), or None."""
+    global_level = parse_level(global_level)
+    for level in LEVELS[:LEVELS.index(global_level) + 1]:
+        if path == (main_path if level == global_level else companion_path(main_path, level)):
+            return level
+    return None
+
+
+def available_target(main_path, global_level, user_level, exists=os.path.exists):
+    """Like route_target, but never a file that is not there (yet).
+
+    A level's companion only exists once a sync running this version has
+    written it. Until then the link serves the nearest lower level that does
+    exist: never a more detailed one, and never a dead link. When nothing
+    exists at all (a fresh install before the first sync) the intended target
+    is returned so the link is right as soon as the sync has run.
+    """
+    wanted = effective_level(user_level, global_level)
+    global_level = parse_level(global_level)
+    for level in reversed(LEVELS[:LEVELS.index(wanted) + 1]):
+        target = main_path if level == global_level else companion_path(main_path, level)
+        if exists(target):
+            return target
+    return route_target(main_path, global_level, user_level)
+
+
 def split_token_rest(rest):
     """Split the part of a user_tokens.txt line after ``username:token:``.
 

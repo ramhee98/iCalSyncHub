@@ -303,6 +303,27 @@ def strip_event_details(event):
     event.subcomponents = []
 
 
+def derive_title_companion(main_path):
+    """Write the title-level companion from an already-written main file.
+
+    Only valid while the main file holds level ``all``: its events already
+    carry the per-URL label, so stripping them gives exactly what a sync would
+    render for ``title``. This lets the token page serve a user who was just
+    switched to "Title only" without waiting for the next sync.
+
+    Returns the companion's path.
+    """
+    dest = detail_levels.companion_path(main_path, detail_levels.TITLE)
+    with open(main_path, 'rb') as f:
+        calendar = icalendar.Calendar.from_ical(f.read())
+    for event in calendar.walk('VEVENT'):
+        strip_event_details(event)
+    tmp = f"{dest}.tmp"
+    save_calendar(calendar, tmp)
+    os.replace(tmp, dest)  # a reader never sees a half-written file
+    return dest
+
+
 def anonymize_event(event, summary="Busy"):
     """Reduce an event to availability only.
 
@@ -720,7 +741,7 @@ def ensure_all_user_ics_symlinks(output_path, show_details):
                     continue
             # A user at the global level reads the main file; a lower level reads
             # that level's companion. A user can never exceed the global level.
-            target = detail_levels.route_target(main_target, global_level, user_level)
+            target = detail_levels.available_target(main_target, global_level, user_level)
             link_name = os.path.join(output_dir, f"{token}.ics")
             try:
                 needs_update = False

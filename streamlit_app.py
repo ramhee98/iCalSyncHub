@@ -353,7 +353,9 @@ def update_user_detail_level(username, level):
         return False
     save_tokens(pairs)
     logger.info(f"Detail level set to '{level}' for user '{username}' (token: {token})")
-    ensure_token_links(token, level)
+    ok, msg = ensure_token_links(token, level)
+    if ok and msg != 'Links ensured':
+        st.session_state['detail_notice'] = msg
     return True
 
 
@@ -373,7 +375,20 @@ def ensure_token_links(token, user_level=detail_levels.NONE):
     if not output_path or not filename:
         return False, 'output_path or filename not configured in config.ini'
     main_target = os.path.join(output_path, filename)
-    target = detail_levels.route_target(main_target, global_level, user_level)
+    wanted = detail_levels.route_target(main_target, global_level, user_level)
+    # The title-level file is normally written by the sync. If a user is switched
+    # to it before that has happened, build it from the main file now instead of
+    # leaving the user's link pointing at a file that does not exist.
+    if (detail_levels.effective_level(user_level, global_level) == detail_levels.TITLE
+            and global_level == detail_levels.ALL
+            and not os.path.exists(wanted) and os.path.isfile(main_target)):
+        try:
+            import sync_calendars
+            sync_calendars.derive_title_companion(main_target)
+            logger.info(f"Created {os.path.basename(wanted)} from the main calendar file")
+        except Exception as e:
+            logger.warning(f"Could not create {os.path.basename(wanted)}: {e}")
+    target = detail_levels.available_target(main_target, global_level, user_level)
     link_name = os.path.join(output_path, f"{token}.ics")
     html_dest = os.path.join(output_path, f"{token}.html")
     try:
@@ -398,6 +413,12 @@ def ensure_token_links(token, user_level=detail_levels.NONE):
                     shutil.copyfile(template, html_dest)
         except Exception as e:
             logger.warning(f"Failed to copy viewer template for token '{token}': {e}")
+        if target != wanted:
+            level = detail_levels.effective_level(user_level, global_level)
+            served = detail_levels.LABELS[detail_levels.level_of_path(main_target, global_level, target)]
+            logger.warning(f"{os.path.basename(wanted)} does not exist yet; token '{token}' serves {served} until the next sync")
+            return True, (f"The “{detail_levels.LABELS[level]}” file does not exist yet, so the link serves "
+                          f"“{served}” until the next sync has written it.")
         return True, 'Links ensured'
     except Exception as e:
         logger.error(f"Failed to ensure links for token '{token}': {e}")
@@ -578,6 +599,9 @@ def _on_detail_level_change(username):
 pairs = load_tokens()
 if pairs:
     st.write("## Current Users and Shareable Calendar URLs:")
+    detail_notice = st.session_state.pop('detail_notice', None)
+    if detail_notice:
+        st.warning(detail_notice)
     merged_url = get_merged_calendar_url()
     config = configparser.ConfigParser(interpolation=None)
     config.read(CONFIG_FILE)
