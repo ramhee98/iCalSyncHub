@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de-CH">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -320,7 +320,7 @@
         <div class="state error" id="error" role="alert" hidden></div>
         <div id="calendar" hidden></div>
       </div>
-      <noscript><div class="state error">Für den Kalender wird JavaScript benötigt. / JavaScript is required to show the calendar.</div></noscript>
+      <noscript><div class="state error">JavaScript is required to show the calendar.</div></noscript>
     </div>
   </main>
 
@@ -338,58 +338,59 @@
   // ------------------------------------------------------------------
   // Strings: every user-visible text lives here so it can be translated.
   // ------------------------------------------------------------------
-  const LOCALE = 'de-CH';
+  // en-GB: day-before-month dates and 24-hour times; the week starts on Monday (set explicitly below)
+  const LOCALE = 'en-GB';
   const STRINGS = {
     appName: 'iCalSyncHub',
-    defaultCalendarName: 'Kalender',
-    skipLink: 'Zum Kalender springen',
-    loading: 'Kalender wird geladen …',
-    lastUpdated: 'Aktualisiert',
-    subscribe: 'Abonnieren',
-    subscribeTitle: 'Kalender abonnieren',
-    icsUrlLabel: 'ICS-Adresse',
-    copyUrl: 'Link kopieren',
-    copied: 'Kopiert!',
-    copyFailed: 'Kopieren fehlgeschlagen',
-    openWebcal: 'In Kalender-App öffnen (webcal://)',
-    addToGoogle: 'Zu Google Kalender hinzufügen',
-    subscribeHint: 'Die Adresse ist geheim: Wer sie kennt, sieht diesen Kalender. Google Kalender kann nur öffentlich erreichbare Adressen abonnieren.',
-    theme: { auto: 'Design: automatisch', light: 'Design: hell', dark: 'Design: dunkel' },
+    defaultCalendarName: 'Calendar',
+    skipLink: 'Skip to calendar',
+    loading: 'Loading calendar …',
+    lastUpdated: 'Updated',
+    subscribe: 'Subscribe',
+    subscribeTitle: 'Subscribe to this calendar',
+    icsUrlLabel: 'ICS address',
+    copyUrl: 'Copy link',
+    copied: 'Copied!',
+    copyFailed: 'Copy failed',
+    openWebcal: 'Open in calendar app (webcal://)',
+    addToGoogle: 'Add to Google Calendar',
+    subscribeHint: 'This address is secret: anyone who has it can see this calendar. Google Calendar can only subscribe to addresses that are publicly reachable.',
+    theme: { auto: 'Theme: automatic', light: 'Theme: light', dark: 'Theme: dark' },
     themeIcon: { auto: '◐', light: '☀', dark: '☾' },
-    viewSwitch: 'Ansicht wählen',
-    views: { listWeek: 'Liste', timeGridDay: 'Tag', timeGridWeek: 'Woche', dayGridMonth: 'Monat' },
-    legend: 'Legende',
+    viewSwitch: 'Choose view',
+    views: { listWeek: 'List', timeGridDay: 'Day', timeGridWeek: 'Week', dayGridMonth: 'Month' },
+    legend: 'Legend',
     calendar: {
-      today: 'Heute', prev: 'Zurück', next: 'Weiter',
-      prevHint: 'Vorheriger Zeitraum', nextHint: 'Nächster Zeitraum', todayHint: 'Zu heute springen',
-      navLinkHint: 'Gehe zu $0',
-      allDay: 'Ganztägig', noEvents: 'Keine Termine in diesem Zeitraum',
-      more: n => `+${n} weitere`, moreShort: n => `+${n}`, moreHint: n => `${n} weitere Termine anzeigen`,
-      week: 'KW',
+      today: 'Today', prev: 'Previous', next: 'Next',
+      prevHint: 'Previous period', nextHint: 'Next period', todayHint: 'Jump to today',
+      navLinkHint: 'Go to $0',
+      allDay: 'All day', noEvents: 'No events in this period',
+      more: n => `+${n} more`, moreShort: n => `+${n}`, moreHint: n => `Show ${n} more events`,
+      week: 'W',
     },
-    untitled: '(Ohne Titel)',
+    untitled: '(Untitled)',
     dialog: {
-      close: 'Schliessen',
-      when: 'Zeit', where: 'Ort', description: 'Beschreibung', source: 'Quelle',
-      allDay: 'Ganztägig', recurring: 'Wiederkehrender Termin',
+      close: 'Close',
+      when: 'When', where: 'Location', description: 'Description', source: 'Source',
+      allDay: 'All day', recurring: 'Recurring event',
     },
     error: {
-      title: 'Der Kalender konnte nicht geladen werden',
-      retry: 'Erneut versuchen',
-      libs: 'Die benötigten Bibliotheken (FullCalendar, ical.js) konnten nicht geladen werden.',
-      fetch: status => `ICS-Datei konnte nicht abgerufen werden (HTTP ${status}).`,
-      technical: 'Technische Details',
+      title: 'The calendar could not be loaded',
+      retry: 'Try again',
+      libs: 'The required libraries (FullCalendar, ical.js) could not be loaded.',
+      fetch: status => `The ICS file could not be fetched (HTTP ${status}).`,
+      technical: 'Technical details',
     },
     debug: {
-      skipped: (n, parts) => `${n} Termine übersprungen (${parts.join(', ')})`,
-      noStart: n => `${n} ohne Start`,
-      parseErrors: n => `${n} Parse-Fehler`,
-      zeroDuration: n => `${n} ohne Dauer`,
+      skipped: (n, parts) => `${n} events skipped (${parts.join(', ')})`,
+      noStart: n => `${n} without start`,
+      parseErrors: n => `${n} parse errors`,
+      zeroDuration: n => `${n} zero-duration`,
       details: 'Details',
-      summary: (t, i, s) => `Gelesene VEVENTs: gesamt=${t}, angezeigt=${i}, übersprungen=${s}`,
-      samplesNoStart: n => `Beispiele (ohne Start, bis zu ${n}):`,
-      samplesExceptions: n => `Beispiele (Parse-Fehler, bis zu ${n}):`,
-      download: 'Debug-JSON herunterladen',
+      summary: (t, i, s) => `Parsed VEVENTs: total=${t}, shown=${i}, skipped=${s}`,
+      samplesNoStart: n => `Samples (no start, up to ${n}):`,
+      samplesExceptions: n => `Samples (parse errors, up to ${n}):`,
+      download: 'Download debug JSON',
     },
   };
 

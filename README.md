@@ -149,7 +149,7 @@ What the viewer offers:
 - **Theme**: follows the OS (`prefers-color-scheme`) with a manual auto/light/dark toggle. The manual choice is stored in the browser's `localStorage` only.
 - **All-day events** appear in the all-day row; multi-day all-day events span the days.
 - **Accessibility**: keyboard navigation, visible focus, ARIA labels, and contrast of at least 4.5:1 in both themes (checked with axe-core).
-- **Language**: German (de-CH), 24-hour times, Monday first. Every text lives in the `STRINGS` object at the top of the script, so translating means editing that one object (and `LOCALE`).
+- **Language**: English (`en-GB`), 24-hour times, Monday first. Every text lives in the `STRINGS` object at the top of the script, so translating means editing that one object (and `LOCALE`).
 
 Parsing behaviour:
 
